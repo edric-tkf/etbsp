@@ -24,6 +24,7 @@ jobs:
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Install Electron, Builder & Auto-Updater
+        shell: bash
         run: |
           npm install --legacy-peer-deps --no-audit --no-fund --save electron-updater
           npm install --legacy-peer-deps --no-audit --no-fund -D electron electron-builder
@@ -34,12 +35,20 @@ jobs:
           npm version "1.1.${GITHUB_RUN_NUMBER}" --no-git-tag-version
 
       - name: Build & Publish Windows Release (.exe + latest.yml)
+        shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          node -e '
+            const fs = require("fs");
+            const cfg = JSON.parse(fs.readFileSync("electron-builder.json", "utf8"));
+            const [owner, repo] = (process.env.GITHUB_REPOSITORY || "").split("/");
+            cfg.publish = [{ provider: "github", owner, repo, releaseType: "release" }];
+            fs.writeFileSync("electron-builder.ci.json", JSON.stringify(cfg, null, 2));
+          '
           npx vite build
-          npx electron-builder --config electron-builder.json --win --publish always -c.publish.provider=github -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }} -c.publish.releaseType=release
+          npx electron-builder --config electron-builder.ci.json --win --publish always
 
       - name: Verify generated files
         shell: bash

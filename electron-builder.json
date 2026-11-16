@@ -1,6 +1,12 @@
 {
   "appId": "org.etbsp.studio",
   "productName": "ET BSP",
+  "publish": [
+    {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  ],
   "npmRebuild": false,
   "asar": true,
   "directories": {
