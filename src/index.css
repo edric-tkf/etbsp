@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bsp-bg: #11141a;
+  --bsp-panel: #171b22;
+  --bsp-card: #20242c;
+  --bsp-elevated: #252a33;
+  --bsp-border: #2c323d;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+}
+
+.font-display {
+  font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif;
+}
+
+.font-mono-tabular {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle OBS-style scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #11141a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2c323d;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3d4554;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

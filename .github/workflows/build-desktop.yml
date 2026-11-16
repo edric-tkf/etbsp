@@ -1,0 +1,41 @@
+name: Build Windows Desktop (.exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Install Electron builder tools
+        run: npm install --legacy-peer-deps --no-audit --no-fund -D electron electron-builder
+
+      - name: Build Windows .exe (Installer + Portable)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run electron:build
+
+      - name: Verify generated .exe files
+        shell: bash
+        run: ls -la release
+
+      - name: Upload Windows .exe artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bible-Song-Pro-Windows
+          if-no-files-found: error
+          path: |
+            release/*.exe

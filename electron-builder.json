@@ -1,0 +1,32 @@
+{
+  "appId": "org.etbsp.studio",
+  "productName": "ET BSP",
+  "publish": null,
+  "npmRebuild": false,
+  "asar": true,
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "win": {
+    "signAndEditExecutable": false,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
