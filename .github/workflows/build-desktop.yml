@@ -29,12 +29,20 @@ jobs:
           npm install --legacy-peer-deps --no-audit --no-fund --save electron-updater
           npm install --legacy-peer-deps --no-audit --no-fund -D electron electron-builder
 
-      - name: Bump build version for auto-update detection
+      - name: Bump build version and create release tag
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm version "1.1.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+          VERSION="1.1.${GITHUB_RUN_NUMBER}"
+          npm version "$VERSION" --no-git-tag-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "v${VERSION}"
+          git push -f origin "v${VERSION}"
+          gh release create "v${VERSION}" --draft --target "${GITHUB_SHA}" --title "ET BSP v${VERSION}" --notes "Automated Windows build for ET BSP v${VERSION}."
 
-      - name: Build & Publish Windows Release (.exe + latest.yml)
+      - name: Build & Upload Windows Release (.exe + latest.yml)
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -44,11 +52,19 @@ jobs:
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("electron-builder.json", "utf8"));
             const [owner, repo] = (process.env.GITHUB_REPOSITORY || "").split("/");
-            cfg.publish = [{ provider: "github", owner, repo, releaseType: "release" }];
+            cfg.publish = [{ provider: "github", owner, repo, releaseType: "draft" }];
             fs.writeFileSync("electron-builder.ci.json", JSON.stringify(cfg, null, 2));
           '
           npx vite build
           npx electron-builder --config electron-builder.ci.json --win --publish always
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="1.1.${GITHUB_RUN_NUMBER}"
+          gh release edit "v${VERSION}" --draft=false --latest
 
       - name: Verify generated files
         shell: bash
