@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import type { CustomFont, DisplaySettings, PresentationState } from '../types/models';
-import { DEFAULT_DISPLAY_SETTINGS, INITIAL_PRESENTATION_STATE } from '../data/seedData';
+import {
+  DEFAULT_DISPLAY_SETTINGS,
+  INITIAL_PRESENTATION_STATE,
+  normalizeDisplaySettings,
+} from '../data/seedData';
 import { LS_KEYS, loadWorkspaceData } from '../utils/storage';
 import { loadCustomFontsIntoDocument } from '../utils/fontEngine';
 import { PresentationSyncClient } from '../utils/syncEngine';
@@ -20,7 +24,7 @@ export const DisplayPage: React.FC = () => {
     try {
       const raw = localStorage.getItem(LS_KEYS.DISPLAY_SETTINGS);
       return raw
-        ? { ...DEFAULT_DISPLAY_SETTINGS, ...(JSON.parse(raw) as DisplaySettings) }
+        ? normalizeDisplaySettings(JSON.parse(raw) as DisplaySettings)
         : DEFAULT_DISPLAY_SETTINGS;
     } catch {
       return DEFAULT_DISPLAY_SETTINGS;
@@ -56,7 +60,7 @@ export const DisplayPage: React.FC = () => {
         if (mounted) setPresentation(nextState);
       },
       onSettingsUpdate: (nextSettings) => {
-        if (mounted) setSettings(nextSettings);
+        if (mounted) setSettings(normalizeDisplaySettings(nextSettings));
       },
       onFontsUpdate: (nextFonts) => {
         if (mounted) setCustomFonts(nextFonts);

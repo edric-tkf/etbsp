@@ -8,10 +8,10 @@ import type {
   UserPreferences,
 } from '../types/models';
 import {
-  DEFAULT_DISPLAY_SETTINGS,
   DEFAULT_THEME_SETTINGS,
   DEFAULT_USER_PREFERENCES,
   INITIAL_PRESENTATION_STATE,
+  normalizeDisplaySettings,
 } from '../data/seedData';
 import { sanitizeBibleTranslation, sortTranslationsNltFirstNivSecond } from './bibleEngine';
 import { sortSongsAlphabetically } from './songEngine';
@@ -137,10 +137,9 @@ export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
 
   const customFonts = storedFonts || lsGet<CustomFont[]>(LS_KEYS.CUSTOM_FONTS) || [];
 
-  const displaySettings: DisplaySettings = {
-    ...DEFAULT_DISPLAY_SETTINGS,
-    ...(storedDisplay || lsGet<DisplaySettings>(LS_KEYS.DISPLAY_SETTINGS) || {}),
-  };
+  const displaySettings: DisplaySettings = normalizeDisplaySettings(
+    storedDisplay || lsGet<DisplaySettings>(LS_KEYS.DISPLAY_SETTINGS)
+  );
 
   const themeSettings: ThemeSettings = {
     ...DEFAULT_THEME_SETTINGS,

@@ -30,6 +30,7 @@ import {
   DEFAULT_USER_PREFERENCES,
   SEED_BIBLE_TRANSLATIONS,
   SEED_SONGS,
+  normalizeDisplaySettings,
 } from '../data/seedData';
 import { PresentationSyncClient } from '../utils/syncEngine';
 import type { BibleTranslation, Song } from '../types/models';
@@ -459,5 +460,30 @@ describe('Font Engine & Panel/Display Sync', () => {
     panelClient.dispose();
     displayClient.dispose();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('Fixed Pixel Font Sizes & Lower Layout Minimums', () => {
+  it('provides separate fixed px defaults for Full-Screen and Lower-Third and migrates legacy fontSizeScale', () => {
+    expect(DEFAULT_DISPLAY_SETTINGS.fullscreenFontSizePx).toBe(64);
+    expect(DEFAULT_DISPLAY_SETTINGS.lowerThirdFontSizePx).toBe(42);
+
+    const migrated = normalizeDisplaySettings({
+      fontSizeScale: 1.5,
+      safeMarginPercent: 0,
+      lowerThirdHeightPercent: 5,
+    });
+    expect(migrated.fullscreenFontSizePx).toBe(96);
+    expect(migrated.lowerThirdFontSizePx).toBe(63);
+    expect(migrated.safeMarginPercent).toBe(0);
+    expect(migrated.lowerThirdHeightPercent).toBe(5);
+
+    const explicit = normalizeDisplaySettings({
+      fullscreenFontSizePx: 52,
+      lowerThirdFontSizePx: 30,
+      fontSizeScale: 1.5,
+    });
+    expect(explicit.fullscreenFontSizePx).toBe(52);
+    expect(explicit.lowerThirdFontSizePx).toBe(30);
   });
 });

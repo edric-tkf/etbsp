@@ -14,6 +14,7 @@ import {
 } from './bibleEngine';
 import { parseLegacyBackupSong, sortSongsAlphabetically } from './songEngine';
 import { normalizeFontFamilyName } from './fontEngine';
+import { normalizeDisplaySettings } from '../data/seedData';
 
 export const BACKUP_SCHEMA_VERSION = 1;
 
@@ -163,7 +164,12 @@ export function validateBackupFile(rawJson: string): BackupValidationResult {
 
   let mappedSettings: Partial<DisplaySettings> | undefined;
   if (rawSettings) {
-    if ('outputResolution' in rawSettings || 'fontSizeScale' in rawSettings) {
+    if (
+      'outputResolution' in rawSettings ||
+      'fullscreenFontSizePx' in rawSettings ||
+      'lowerThirdFontSizePx' in rawSettings ||
+      'fontSizeScale' in rawSettings
+    ) {
       mappedSettings = { ...(rawSettings as DisplaySettings) };
     } else {
       mappedSettings = {};
@@ -243,7 +249,9 @@ export function mergeBackupData(existing: AppDataBundle, incoming: BackupFile): 
     songs: sortSongsAlphabetically(Array.from(songMap.values())),
     bibleTranslations: sortTranslationsNltFirstNivSecond(Array.from(transMap.values())),
     customFonts: Array.from(fontMap.values()),
-    settings: incoming.settings ? { ...existing.settings, ...incoming.settings } : existing.settings,
+    settings: incoming.settings
+      ? normalizeDisplaySettings({ ...existing.settings, ...incoming.settings })
+      : existing.settings,
     themes: incoming.themes ? { ...existing.themes, ...incoming.themes } : existing.themes,
     preferences: incoming.preferences
       ? { ...existing.preferences, ...incoming.preferences }
@@ -258,7 +266,9 @@ export function replaceBackupData(existing: AppDataBundle, incoming: BackupFile)
       incoming.bibleTranslations.map(sanitizeBibleTranslation)
     ),
     customFonts: incoming.customFonts || existing.customFonts,
-    settings: incoming.settings ? { ...existing.settings, ...incoming.settings } : existing.settings,
+    settings: incoming.settings
+      ? normalizeDisplaySettings({ ...existing.settings, ...incoming.settings })
+      : existing.settings,
     themes: incoming.themes ? { ...existing.themes, ...incoming.themes } : existing.themes,
     preferences: incoming.preferences
       ? { ...existing.preferences, ...incoming.preferences }

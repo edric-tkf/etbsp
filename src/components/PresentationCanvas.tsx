@@ -9,24 +9,6 @@ interface PresentationCanvasProps {
   className?: string;
 }
 
-function getBibleAdaptiveFontPx(textLength: number, scale: number, lowerThird: boolean): number {
-  let base = lowerThird ? 38 : 60;
-  if (textLength > 260) base *= 0.68;
-  else if (textLength > 190) base *= 0.78;
-  else if (textLength > 130) base *= 0.88;
-  else if (textLength < 55 && !lowerThird) base *= 1.1;
-  return Math.round(base * scale);
-}
-
-function getSongAdaptiveFontPx(lines: string[], scale: number, lowerThird: boolean): number {
-  const longest = Math.max(0, ...lines.map((l) => l.length));
-  let base = lowerThird ? 44 : 68;
-  if (longest > 56) base = lowerThird ? 32 : 46;
-  else if (longest > 44) base = lowerThird ? 36 : 54;
-  else if (longest > 32) base = lowerThird ? 40 : 60;
-  return Math.round(base * scale);
-}
-
 function hexToRgba(hex: string, alpha: number): string {
   const cleaned = hex.replace('#', '').trim();
   if (cleaned.length === 3) {
@@ -53,10 +35,8 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
   className = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const contentBoxRef = useRef<HTMLDivElement>(null);
   const bgVideoRef = useRef<HTMLVideoElement>(null);
   const [scaleRatio, setScaleRatio] = useState(1);
-  const [fitFactor, setFitFactor] = useState(1);
 
   // Measure container accurately using layout effect + ResizeObserver from virtual 1920x1080 stage
   useLayoutEffect(() => {
@@ -85,44 +65,6 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
 
   const bibleSlide = presentation.bible;
   const songSlide = presentation.song;
-
-  // Reset fitFactor whenever slide text or typography changes, then shrink if overflowing
-  const contentSignature = useMemo(
-    () =>
-      JSON.stringify({
-        isLive: presentation.isLive,
-        activeType: presentation.activeType,
-        mode: presentation.bibleDisplayMode,
-        pos: settings.lowerThirdPosition,
-        ltH: settings.lowerThirdHeightPercent,
-        font: settings.fontFamily,
-        scale: settings.fontSizeScale,
-        ws: settings.wordSpacingPx,
-        lh: settings.lineHeight,
-        gap: settings.songLineGapPx,
-        margin: settings.safeMarginPercent,
-        bible: bibleSlide
-          ? `${bibleSlide.book}:${bibleSlide.chapter}:${bibleSlide.verse}:${bibleSlide.text}`
-          : '',
-        song: songSlide ? `${songSlide.songId}:${songSlide.slideIndex}:${songSlide.lines.join('|')}` : '',
-      }),
-    [presentation, settings, bibleSlide, songSlide]
-  );
-
-  useLayoutEffect(() => {
-    setFitFactor(1);
-  }, [contentSignature]);
-
-  useLayoutEffect(() => {
-    const box = contentBoxRef.current;
-    if (!box || !presentation.isLive || presentation.activeType === 'none') return;
-    if (fitFactor <= 0.5) return;
-    const overflowsVert = box.scrollHeight > box.clientHeight + 2;
-    const overflowsHoriz = box.scrollWidth > box.clientWidth + 2;
-    if (overflowsVert || overflowsHoriz) {
-      setFitFactor((prev) => Math.max(0.5, Number((prev - 0.05).toFixed(2))));
-    }
-  }, [fitFactor, contentSignature, presentation.isLive, presentation.activeType]);
 
   // Background CSS computation
   const backgroundStyle = useMemo<React.CSSProperties>(() => {
@@ -194,7 +136,27 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
   const resolvedFont = normalizeFontFamilyName(settings.fontFamily);
   const wordSpacingValue = `${settings.wordSpacingPx ?? 0}px`;
   const lineHeightValue = settings.lineHeight ?? 1.25;
-  const songGapValue = Math.round((settings.songLineGapPx ?? 16) * fitFactor);
+  const songGapValue = settings.songLineGapPx ?? 16;
+
+  // Fixed pixel font sizes (never scaled by word/character count) applied equally to Bible and Songs
+  const fullScreenPx = Math.max(
+    10,
+    Math.round(
+      typeof settings.fullscreenFontSizePx === 'number' && settings.fullscreenFontSizePx > 0
+        ? settings.fullscreenFontSizePx
+        : 64 * (settings.fontSizeScale || 1)
+    )
+  );
+  const lowerThirdPx = Math.max(
+    10,
+    Math.round(
+      typeof settings.lowerThirdFontSizePx === 'number' && settings.lowerThirdFontSizePx > 0
+        ? settings.lowerThirdFontSizePx
+        : 42 * (settings.fontSizeScale || 1)
+    )
+  );
+  const activeFontPx = isLowerThird ? lowerThirdPx : fullScreenPx;
+  const bibleRefFontPx = Math.max(12, Math.round(activeFontPx * 0.52));
 
   const bibleTextUpper = bibleSlide ? bibleSlide.text.toUpperCase() : '';
   const bibleRefUpper = bibleSlide
@@ -202,23 +164,15 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
     : '';
   const songLinesUpper = songSlide ? songSlide.lines.slice(0, 2).map((l) => l.toUpperCase()) : [];
 
-  const bibleFontPx = bibleSlide
-    ? Math.round(
-        getBibleAdaptiveFontPx(
-          bibleTextUpper.length,
-          settings.fontSizeScale,
-          isLowerThird
-        ) * fitFactor
-      )
-    : 56;
-
-  const songFontPx = songSlide
-    ? Math.round(
-        getSongAdaptiveFontPx(songLinesUpper, settings.fontSizeScale, isLowerThird) * fitFactor
-      )
-    : 64;
-
-  const lowerThirdHeightPx = Math.round((settings.lowerThirdHeightPercent / 100) * 1080);
+  const safeMarginPct = Math.max(0, settings.safeMarginPercent ?? 0);
+  const lowerThirdHeightPx = Math.max(
+    0,
+    Math.round(((settings.lowerThirdHeightPercent ?? 28) / 100) * 1080)
+  );
+  const lowerThirdPadY = showLowerThirdBox
+    ? Math.min(28, Math.max(2, Math.round(lowerThirdHeightPx * 0.1)))
+    : Math.min(16, Math.max(0, Math.round(lowerThirdHeightPx * 0.06)));
+  const lowerThirdPadX = showLowerThirdBox ? 40 : 16;
 
   return (
     <div
@@ -297,25 +251,23 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
               key={slideAnimationKey}
               className="absolute inset-0 flex flex-col justify-center overflow-hidden"
               style={{
-                padding: `${settings.safeMarginPercent}%`,
+                padding: `${safeMarginPct}%`,
                 ...animationStyle,
               }}
             >
-              <div
-                ref={contentBoxRef}
-                className={`w-full max-h-full overflow-hidden flex flex-col justify-center ${alignClass}`}
-              >
+              <div className={`w-full max-h-full overflow-hidden flex flex-col justify-center ${alignClass}`}>
                 {presentation.activeType === 'bible' && bibleSlide && (
                   <>
                     {settings.showBibleReferenceLabel && (
                       <div
-                        className={`inline-flex items-center gap-4 px-8 py-3 mb-9 font-bold tracking-wide shadow-lg shrink-0 ${
+                        className={`inline-flex items-center gap-4 px-8 py-3 font-bold tracking-wide shadow-lg shrink-0 ${
                           settings.bibleReferenceRounded ? 'rounded-full' : 'rounded-xl'
                         }`}
                         style={{
                           backgroundColor: settings.bibleReferenceBgColor,
                           color: settings.bibleReferenceTextColor,
-                          fontSize: `${Math.round(34 * settings.fontSizeScale * fitFactor)}px`,
+                          fontSize: `${bibleRefFontPx}px`,
+                          marginBottom: `${Math.max(12, Math.round(activeFontPx * 0.45))}px`,
                           wordSpacing: wordSpacingValue,
                           textTransform: 'uppercase',
                         }}
@@ -325,10 +277,10 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                     )}
 
                     <p
-                      className="font-bold max-w-[1660px] uppercase"
+                      className="font-bold w-full uppercase break-words"
                       style={{
                         color: settings.textColor,
-                        fontSize: `${bibleFontPx}px`,
+                        fontSize: `${activeFontPx}px`,
                         lineHeight: lineHeightValue,
                         wordSpacing: wordSpacingValue,
                         textShadow: textShadowStyle,
@@ -342,16 +294,16 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
 
                 {presentation.activeType === 'song' && songSlide && (
                   <div
-                    className={`flex flex-col max-w-[1680px] w-full ${alignClass}`}
+                    className={`flex flex-col w-full ${alignClass}`}
                     style={{ gap: `${songGapValue}px` }}
                   >
                     {songLinesUpper.map((line, i) => (
                       <p
                         key={i}
-                        className="font-bold uppercase"
+                        className="font-bold w-full uppercase break-words"
                         style={{
                           color: settings.textColor,
-                          fontSize: `${songFontPx}px`,
+                          fontSize: `${activeFontPx}px`,
                           lineHeight: lineHeightValue,
                           wordSpacing: wordSpacingValue,
                           textShadow: textShadowStyle,
@@ -377,29 +329,27 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                 lowerThirdAtTop ? 'top-0 items-start' : 'bottom-0 items-end'
               }`}
               style={{
-                paddingLeft: `${settings.safeMarginPercent}%`,
-                paddingRight: `${settings.safeMarginPercent}%`,
-                paddingTop: lowerThirdAtTop
-                  ? `${Math.max(2, settings.safeMarginPercent * 0.6)}%`
-                  : undefined,
-                paddingBottom: !lowerThirdAtTop
-                  ? `${Math.max(2, settings.safeMarginPercent * 0.6)}%`
-                  : undefined,
+                paddingLeft: `${safeMarginPct}%`,
+                paddingRight: `${safeMarginPct}%`,
+                paddingTop: lowerThirdAtTop ? `${safeMarginPct}%` : undefined,
+                paddingBottom: !lowerThirdAtTop ? `${safeMarginPct}%` : undefined,
                 ...animationStyle,
               }}
             >
               <div
-                ref={contentBoxRef}
                 className={`w-full flex flex-col justify-center overflow-hidden ${alignClass} ${
                   showLowerThirdBox
-                    ? `rounded-3xl border border-white/15 px-12 py-7 shadow-2xl ${
+                    ? `rounded-3xl border border-white/15 shadow-2xl ${
                         settings.lowerThirdBlur ? 'backdrop-blur-md' : ''
                       }`
-                    : 'px-6 py-4'
+                    : ''
                 }`}
                 style={{
                   minHeight: `${lowerThirdHeightPx}px`,
-                  maxHeight: `${Math.max(lowerThirdHeightPx + 100, 440)}px`,
+                  paddingTop: `${lowerThirdPadY}px`,
+                  paddingBottom: `${lowerThirdPadY}px`,
+                  paddingLeft: `${lowerThirdPadX}px`,
+                  paddingRight: `${lowerThirdPadX}px`,
                   backgroundColor: showLowerThirdBox
                     ? hexToRgba(settings.lowerThirdBgColor || '#0b142a', settings.lowerThirdOpacity)
                     : 'transparent',
@@ -408,15 +358,20 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                 {presentation.activeType === 'bible' && bibleSlide && (
                   <>
                     {settings.showBibleReferenceLabel && (
-                      <div className="mb-3.5 flex items-center shrink-0">
+                      <div
+                        className="flex items-center shrink-0"
+                        style={{
+                          marginBottom: `${Math.max(4, Math.round(activeFontPx * 0.22))}px`,
+                        }}
+                      >
                         <span
-                          className={`inline-flex items-center gap-3 px-6 py-1.5 font-bold uppercase tracking-wide ${
+                          className={`inline-flex items-center gap-3 px-5 py-1 font-bold uppercase tracking-wide ${
                             settings.bibleReferenceRounded ? 'rounded-full' : 'rounded-lg'
                           }`}
                           style={{
                             backgroundColor: settings.bibleReferenceBgColor,
                             color: settings.bibleReferenceTextColor,
-                            fontSize: `${Math.round(25 * settings.fontSizeScale * fitFactor)}px`,
+                            fontSize: `${bibleRefFontPx}px`,
                             wordSpacing: wordSpacingValue,
                             textTransform: 'uppercase',
                           }}
@@ -427,10 +382,10 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                     )}
 
                     <p
-                      className="font-bold uppercase w-full"
+                      className="font-bold uppercase w-full break-words"
                       style={{
                         color: settings.textColor,
-                        fontSize: `${bibleFontPx}px`,
+                        fontSize: `${activeFontPx}px`,
                         lineHeight: lineHeightValue,
                         wordSpacing: wordSpacingValue,
                         textShadow: textShadowStyle,
@@ -445,15 +400,15 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                 {presentation.activeType === 'song' && songSlide && (
                   <div
                     className={`flex flex-col w-full ${alignClass}`}
-                    style={{ gap: `${Math.max(4, Math.round(songGapValue * 0.75))}px` }}
+                    style={{ gap: `${songGapValue}px` }}
                   >
                     {songLinesUpper.map((line, i) => (
                       <p
                         key={i}
-                        className="font-bold uppercase"
+                        className="font-bold w-full uppercase break-words"
                         style={{
                           color: settings.textColor,
-                          fontSize: `${songFontPx}px`,
+                          fontSize: `${activeFontPx}px`,
                           lineHeight: lineHeightValue,
                           wordSpacing: wordSpacingValue,
                           textShadow: textShadowStyle,

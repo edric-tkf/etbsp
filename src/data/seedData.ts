@@ -24,6 +24,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   transition: 'fade',
   transitionDurationMs: 320,
   fontFamily: 'Plus Jakarta Sans',
+  fullscreenFontSizePx: 64,
+  lowerThirdFontSizePx: 42,
   fontSizeScale: 1,
   wordSpacingPx: 0,
   lineHeight: 1.25,
@@ -45,6 +47,41 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   defaultBibleBackgroundColor: '#0b245b',
   defaultSongBackgroundColor: '#0d1017',
 };
+
+export function normalizeDisplaySettings(
+  raw?: Partial<DisplaySettings> | null
+): DisplaySettings {
+  const merged: DisplaySettings = {
+    ...DEFAULT_DISPLAY_SETTINGS,
+    ...(raw || {}),
+  };
+  const legacyScale =
+    typeof raw?.fontSizeScale === 'number' &&
+    Number.isFinite(raw.fontSizeScale) &&
+    raw.fontSizeScale > 0
+      ? raw.fontSizeScale
+      : 1;
+
+  if (
+    typeof raw?.fullscreenFontSizePx !== 'number' ||
+    !Number.isFinite(raw.fullscreenFontSizePx) ||
+    raw.fullscreenFontSizePx <= 0
+  ) {
+    merged.fullscreenFontSizePx = Math.round(
+      DEFAULT_DISPLAY_SETTINGS.fullscreenFontSizePx * legacyScale
+    );
+  }
+  if (
+    typeof raw?.lowerThirdFontSizePx !== 'number' ||
+    !Number.isFinite(raw.lowerThirdFontSizePx) ||
+    raw.lowerThirdFontSizePx <= 0
+  ) {
+    merged.lowerThirdFontSizePx = Math.round(
+      DEFAULT_DISPLAY_SETTINGS.lowerThirdFontSizePx * legacyScale
+    );
+  }
+  return merged;
+}
 
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   id: 'theme-sanctuary-blue',
@@ -128,7 +165,8 @@ export const THEME_PRESETS: Array<{
       defaultBibleBackgroundColor: '#000000',
       defaultSongBackgroundColor: '#000000',
       textColor: '#ffffff',
-      fontSizeScale: 1.15,
+      fullscreenFontSizePx: 74,
+      lowerThirdFontSizePx: 48,
       textShadow: true,
       transparentBackground: false,
     },

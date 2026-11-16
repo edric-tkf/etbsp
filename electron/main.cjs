@@ -181,8 +181,17 @@ function startEmbeddedServer() {
       res.json({ app: 'ET BSP', version: pkg.version, timestamp: Date.now() });
     });
 
-    serverApp.use(express.static(distDir));
+    serverApp.use(
+      express.static(distDir, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          }
+        },
+      })
+    );
     serverApp.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.sendFile(path.join(distDir, 'index.html'));
     });
 
@@ -349,16 +358,28 @@ ipcMain.handle('bsp:install-update', () => {
   return { ok: true };
 });
 
-app.whenReady().then(async () => {
-  baseUrl = await startEmbeddedServer();
-  createControlWindow();
-  initAutoUpdater();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createControlWindow();
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (controlWindow) {
+      if (controlWindow.isMinimized()) controlWindow.restore();
+      controlWindow.focus();
     }
   });
-});
+
+  app.whenReady().then(async () => {
+    baseUrl = await startEmbeddedServer();
+    createControlWindow();
+    initAutoUpdater();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createControlWindow();
+      }
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   if (embeddedServer) {

@@ -831,28 +831,94 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* Size, Word Spacing, Line Distance Sliders */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                      <span>Font Size Scale</span>
-                      <span className="font-mono-tabular">
-                        {Math.round(displaySettings.fontSizeScale * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0.7}
-                      max={1.5}
-                      step={0.05}
-                      value={displaySettings.fontSizeScale}
-                      onChange={(e) =>
-                        onUpdateDisplaySettings({ fontSizeScale: Number(e.target.value) })
-                      }
-                      className="w-full accent-blue-500"
-                    />
+                {/* Fixed Font Sizes (Full-Screen & Lower-Third), Word Spacing, Line Distance */}
+                <div className="rounded-lg bg-[#20242c] border border-[#2c323d] p-3 space-y-3">
+                  <div className="text-[11px] text-slate-400">
+                    Fixed pixel sizes apply to both Bible and Song slides and stay constant regardless of word count.
                   </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                        <span>Full-Screen Font Size</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={10}
+                            max={240}
+                            step={1}
+                            aria-label="Full-Screen Font Size (px)"
+                            value={displaySettings.fullscreenFontSizePx}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v)) {
+                                onUpdateDisplaySettings({
+                                  fullscreenFontSizePx: Math.max(10, Math.min(240, Math.round(v))),
+                                });
+                              }
+                            }}
+                            className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                          />
+                          <span className="font-mono-tabular text-slate-400">px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={16}
+                        max={160}
+                        step={1}
+                        value={Math.min(160, Math.max(16, displaySettings.fullscreenFontSizePx))}
+                        onChange={(e) =>
+                          onUpdateDisplaySettings({
+                            fullscreenFontSizePx: Number(e.target.value),
+                          })
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
 
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                        <span>Lower-Third Font Size</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={10}
+                            max={200}
+                            step={1}
+                            aria-label="Lower-Third Font Size (px)"
+                            value={displaySettings.lowerThirdFontSizePx}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v)) {
+                                onUpdateDisplaySettings({
+                                  lowerThirdFontSizePx: Math.max(10, Math.min(200, Math.round(v))),
+                                });
+                              }
+                            }}
+                            className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                          />
+                          <span className="font-mono-tabular text-slate-400">px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={12}
+                        max={120}
+                        step={1}
+                        value={Math.min(120, Math.max(12, displaySettings.lowerThirdFontSizePx))}
+                        onChange={(e) =>
+                          onUpdateDisplaySettings({
+                            lowerThirdFontSizePx: Number(e.target.value),
+                          })
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Word Spacing & Line Distance Sliders */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <div className="flex justify-between text-[11px] text-slate-300 mb-1">
                       <span>Word Spacing</span>
@@ -954,9 +1020,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={2}
-                      max={12}
-                      step={1}
+                      min={0}
+                      max={15}
+                      step={0.5}
                       value={displaySettings.safeMarginPercent}
                       onChange={(e) =>
                         onUpdateDisplaySettings({ safeMarginPercent: Number(e.target.value) })
@@ -974,8 +1040,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <input
                       type="range"
-                      min={18}
-                      max={42}
+                      min={1}
+                      max={50}
                       step={1}
                       value={displaySettings.lowerThirdHeightPercent}
                       onChange={(e) =>

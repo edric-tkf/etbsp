@@ -136,20 +136,22 @@ export interface DisplaySettings {
   transition: TransitionType;
   transitionDurationMs: number;
   fontFamily: string;
-  fontSizeScale: number; // 0.7 to 1.6
+  fullscreenFontSizePx: number; // Fixed px font size for Full-Screen (Bible & Song)
+  lowerThirdFontSizePx: number; // Fixed px font size for Lower-Third (Bible & Song)
+  fontSizeScale?: number; // Deprecated legacy scale retained for backward compatibility
   wordSpacingPx: number; // -4 to 24
   lineHeight: number; // 0.95 to 2.2
   songLineGapPx: number; // 0 to 64
   textAlign: TextAlignMode;
   textColor: string;
   textShadow: boolean;
-  safeMarginPercent: number; // 2 to 12
+  safeMarginPercent: number; // 0 to 15
   bibleReferenceBgColor: string;
   bibleReferenceTextColor: string;
   bibleReferenceRounded: boolean;
   showBibleReferenceLabel: boolean;
   lowerThirdPosition: LowerThirdPosition;
-  lowerThirdHeightPercent: number; // 18 to 42
+  lowerThirdHeightPercent: number; // 1 to 50
   lowerThirdShowBackground: boolean;
   lowerThirdBgColor: string;
   lowerThirdOpacity: number; // 0 to 1
