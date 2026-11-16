@@ -149,7 +149,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
               </label>
               {draftPreview && (
                 <span className="text-[11px] font-mono-tabular text-slate-400">
-                  {draftPreview.song.sections.length} sections · {draftPreview.slideCount} slides
+                  {draftPreview.song.sections.length} sections
                 </span>
               )}
             </div>
@@ -201,7 +201,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
         <div className="min-w-0">
           <h2 className="text-xs font-bold text-white truncate">{activeSong.title}</h2>
           <div className="text-[11px] text-slate-400">
-            {slides.length} slides · click any row to project
+            Click any lyric row to project · click again while live to hide
           </div>
         </div>
 
@@ -233,9 +233,10 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
         </div>
       </div>
 
-      {/* Compact List Format (Click any slide row to project live) */}
-      <div className="flex-1 overflow-y-auto rounded-lg bg-[#171b22] border border-[#2c323d] divide-y divide-[#252a33]">
-        {slides.map((slide) => {
+      {/* Compact List Format with clear section dividers between adjacent cells */}
+      <div className="flex-1 overflow-y-auto rounded-lg bg-[#171b22] border border-[#2c323d]">
+        {slides.map((slide, idx) => {
+          const isNewSection = idx === 0 || slide.sectionId !== slides[idx - 1].sectionId;
           const isSelected = slide.slideIndex === selectedSlideIndex;
           const isLiveSlide =
             presentation.isLive &&
@@ -243,57 +244,68 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
             presentation.song?.songId === activeSong.id &&
             presentation.song?.slideIndex === slide.slideIndex;
 
+          const sectionAccentClass =
+            slide.sectionType === 'chorus'
+              ? 'bg-amber-400 text-amber-300'
+              : slide.sectionType === 'bridge'
+              ? 'bg-purple-400 text-purple-300'
+              : slide.sectionType === 'pre-chorus'
+              ? 'bg-sky-400 text-sky-300'
+              : slide.sectionType === 'tag' || slide.sectionType === 'outro' || slide.sectionType === 'ending'
+              ? 'bg-emerald-400 text-emerald-300'
+              : 'bg-blue-400 text-blue-300';
+
+          const [barColorClass, labelColorClass] = sectionAccentClass.split(' ');
+
           return (
-            <button
-              key={slide.id}
-              type="button"
-              onClick={() => {
-                if (isLiveSlide) {
-                  onClearOutput();
-                } else {
-                  onProjectSongSlide(activeSong, slide.slideIndex);
-                }
-              }}
-              title={isLiveSlide ? 'Click again to hide lyric' : 'Click to project lyric'}
-              className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer ${
-                isLiveSlide
-                  ? 'bg-red-950/40 text-white'
-                  : isSelected
-                  ? 'bg-[#20242c] text-white'
-                  : 'hover:bg-[#20242c]/80 text-slate-200'
-              }`}
-            >
-              <span
-                className={`min-w-[34px] px-1.5 py-0.5 rounded text-center text-[10px] font-bold font-mono-tabular shrink-0 mt-0.5 ${
+            <React.Fragment key={slide.id}>
+              {isNewSection && (
+                <div
+                  className={`px-3 py-1.5 bg-[#12161e] flex items-center gap-2 border-b border-[#252a33] ${
+                    idx > 0 ? 'border-t-2 border-t-[#2c323d]' : ''
+                  }`}
+                >
+                  <span className={`w-1 h-3 rounded-full shrink-0 ${barColorClass}`} />
+                  <span className={`text-[10px] font-bold uppercase tracking-wider shrink-0 ${labelColorClass}`}>
+                    {slide.sectionTitle}
+                  </span>
+                  <div className="flex-1 h-px bg-[#252a33]" />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLiveSlide) {
+                    onClearOutput();
+                  } else {
+                    onProjectSongSlide(activeSong, slide.slideIndex);
+                  }
+                }}
+                title={isLiveSlide ? 'Click again to hide lyric' : 'Click to project lyric'}
+                className={`w-full text-left px-3 py-2 flex items-center justify-between gap-2.5 border-b border-[#252a33] last:border-b-0 transition-colors cursor-pointer ${
                   isLiveSlide
-                    ? 'bg-red-600 text-white'
+                    ? 'bg-red-950/40 text-white border-l-2 border-l-red-500'
                     : isSelected
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-[#252a33] text-slate-400'
+                    ? 'bg-[#20242c] text-white border-l-2 border-l-blue-500'
+                    : 'hover:bg-[#20242c]/80 text-slate-200'
                 }`}
               >
-                {slide.slideIndex + 1}/{slide.totalSlides}
-              </span>
-
-              <div className="flex-1 min-w-0">
-                <div className="text-[10px] font-semibold text-blue-400 mb-0.5">
-                  {slide.sectionTitle}
-                </div>
-                <div className="space-y-0.5">
+                <div className="flex-1 min-w-0 space-y-0.5">
                   {slide.lines.slice(0, 2).map((line, i) => (
                     <div key={i} className="text-xs font-medium text-slate-100 leading-snug">
                       {line}
                     </div>
                   ))}
                 </div>
-              </div>
 
-              {isLiveSlide && (
-                <span className="text-[10px] font-bold text-red-400 tracking-wide shrink-0 mt-0.5">
-                  LIVE
-                </span>
-              )}
-            </button>
+                {isLiveSlide && (
+                  <span className="text-[10px] font-bold text-red-400 tracking-wide shrink-0">
+                    LIVE
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
           );
         })}
       </div>

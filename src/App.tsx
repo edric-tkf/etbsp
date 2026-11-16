@@ -750,7 +750,7 @@ function ControlPanel() {
     }
     if (presentation.activeType === 'song' && presentation.song) {
       const s = presentation.song;
-      return `${s.songTitle} · SLIDE ${s.slideIndex + 1}/${s.totalSlides}`.toUpperCase();
+      return `${s.songTitle} · ${s.sectionTitle}`.toUpperCase();
     }
     return 'LIVE';
   }, [presentation]);
@@ -931,7 +931,6 @@ function ControlPanel() {
                   ) : (
                     filteredSongsForSidebar.map((song) => {
                       const active = song.id === activeSong?.id;
-                      const slideCount = computeSongSlides(song).length;
                       return (
                         <button
                           key={song.id}
@@ -947,9 +946,6 @@ function ControlPanel() {
                           }`}
                         >
                           <span className="text-[11px] truncate">{song.title}</span>
-                          <span className="text-[10px] font-mono-tabular text-slate-500 shrink-0">
-                            {slideCount}
-                          </span>
                         </button>
                       );
                     })
@@ -1254,10 +1250,7 @@ function ControlPanel() {
               </span>
             )}
             {activeTab === 'songs' && activeSong && (
-              <span>
-                {activeSong.title} · Slide {Math.min(selectedSongSlideIdx + 1, Math.max(1, activeSongSlides.length))}/
-                {Math.max(1, activeSongSlides.length)}
-              </span>
+              <span>{activeSong.title}</span>
             )}
           </div>
         </div>

@@ -260,6 +260,28 @@ Chorus two`;
     expect(slides[3].lines).toEqual(['Chorus one', 'Chorus two']);
   });
 
+  it('starts a new slide on intentional blank lines within a section without merging across the break', () => {
+    const txt = `[Verse 1]
+A
+B
+C
+
+D
+E
+F`;
+    const parsed = parseSongTXT(txt, { title: 'Break Test' });
+    expect(parsed.errors).toHaveLength(0);
+    expect(parsed.song.sections).toHaveLength(1);
+    const slides = computeSongSlides(parsed.song);
+    expect(slides.map((s) => s.lines)).toEqual([
+      ['A', 'B'],
+      ['C'],
+      ['D', 'E'],
+      ['F'],
+    ]);
+    expect(songToRawText(parsed.song)).toContain('C\n\nD');
+  });
+
   it('reconstructs raw editable text via songToRawText', () => {
     const raw = songToRawText(sampleSong);
     expect(raw).toContain('[Verse 1]');

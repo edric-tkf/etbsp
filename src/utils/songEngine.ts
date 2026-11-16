@@ -35,39 +35,54 @@ function isSectionHeading(line: string): boolean {
 }
 
 /**
- * Splits non-empty lyric lines into slides of strictly TWO lyric lines per slide
- * (with at most 1 remainder line on the final slide if the section has an odd line count).
+ * Splits lyric lines into slides of up to TWO lines per slide,
+ * starting a fresh slide whenever an intentional blank line ("") appears.
  */
 export function groupLinesIntoTwoLineSlides(
   lines: string[],
   section: { id: string; title: string; type: SongSectionType; timestamps?: Array<number | undefined> },
   songId: string
 ): Omit<SongSlide, 'slideIndex' | 'totalSlides'>[] {
-  const cleanIndices: number[] = [];
-  const cleanLines: string[] = [];
+  const groups: Array<Array<{ text: string; origIdx: number }>> = [];
+  let currentGroup: Array<{ text: string; origIdx: number }> = [];
+
   lines.forEach((line, idx) => {
     const trimmed = line.trim();
-    if (trimmed.length > 0) {
-      cleanLines.push(trimmed);
-      cleanIndices.push(idx);
+    if (trimmed.length === 0) {
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+        currentGroup = [];
+      }
+      return;
     }
+    currentGroup.push({ text: trimmed, origIdx: idx });
   });
 
-  const slides: Omit<SongSlide, 'slideIndex' | 'totalSlides'>[] = [];
-  for (let i = 0; i < cleanLines.length; i += MAX_LINES_PER_SONG_SLIDE) {
-    const pair = cleanLines.slice(i, i + MAX_LINES_PER_SONG_SLIDE);
-    const firstOrigIdx = cleanIndices[i];
-    const ts = section.timestamps?.[firstOrigIdx];
-    slides.push({
-      id: `${songId}-${section.id}-${Math.floor(i / 2)}`,
-      songId,
-      sectionId: section.id,
-      sectionTitle: section.title,
-      sectionType: section.type,
-      lines: pair,
-      timestamp: ts,
-    });
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
   }
+
+  const slides: Omit<SongSlide, 'slideIndex' | 'totalSlides'>[] = [];
+  let slideCounter = 0;
+
+  for (const group of groups) {
+    for (let i = 0; i < group.length; i += MAX_LINES_PER_SONG_SLIDE) {
+      const pair = group.slice(i, i + MAX_LINES_PER_SONG_SLIDE);
+      const firstOrigIdx = pair[0].origIdx;
+      const ts = section.timestamps?.[firstOrigIdx];
+      slides.push({
+        id: `${songId}-${section.id}-${slideCounter}`,
+        songId,
+        sectionId: section.id,
+        sectionTitle: section.title,
+        sectionType: section.type,
+        lines: pair.map((item) => item.text),
+        timestamp: ts,
+      });
+      slideCounter += 1;
+    }
+  }
+
   return slides;
 }
 
@@ -135,17 +150,20 @@ export function parseSongTXT(
   let currentTitle = 'Verse 1';
   let currentType: SongSectionType = 'verse';
   let currentLyrics: string[] = [];
-  let verseCounter = 1;
-  let sawAnyHeading = false;
 
   const flushSection = () => {
-    const nonEmpty = currentLyrics.map((l) => l.trim()).filter(Boolean);
-    if (nonEmpty.length > 0) {
+    const trimmedLines = currentLyrics.map((l) => l.trim());
+    while (trimmedLines.length > 0 && trimmedLines[0] === '') trimmedLines.shift();
+    while (trimmedLines.length > 0 && trimmedLines[trimmedLines.length - 1] === '') {
+      trimmedLines.pop();
+    }
+    const hasContent = trimmedLines.some((l) => l.length > 0);
+    if (hasContent) {
       sections.push({
         id: `sec-${sections.length + 1}-${Date.now()}`,
         type: currentType,
         title: currentTitle,
-        lyrics: nonEmpty,
+        lyrics: trimmedLines,
       });
     }
     currentLyrics = [];
@@ -154,17 +172,14 @@ export function parseSongTXT(
   for (const rawLine of rawLines) {
     const line = rawLine.trim();
     if (!line) {
-      if (!sawAnyHeading && currentLyrics.length > 0) {
-        flushSection();
-        verseCounter += 1;
-        currentTitle = `Verse ${verseCounter}`;
-        currentType = 'verse';
+      // Preserve intentional blank lines inside a section as slide-break markers
+      if (currentLyrics.length > 0 && currentLyrics[currentLyrics.length - 1] !== '') {
+        currentLyrics.push('');
       }
       continue;
     }
 
     if (isSectionHeading(line)) {
-      sawAnyHeading = true;
       flushSection();
       currentTitle = normalizeSectionHeading(line);
       currentType = inferSectionType(currentTitle);
@@ -174,18 +189,6 @@ export function parseSongTXT(
     currentLyrics.push(line);
   }
   flushSection();
-
-  if (!sawAnyHeading && sections.length > 1) {
-    const mergedLyrics = sections.flatMap((s) => s.lyrics);
-    sections.splice(0, sections.length, {
-      id: `sec-1-${Date.now()}`,
-      type: 'verse',
-      title: 'Verse 1',
-      lyrics: mergedLyrics,
-    });
-  } else if (!sawAnyHeading && sections.length === 1) {
-    sections[0].title = 'Verse 1';
-  }
 
   if (sections.length === 0) {
     errors.push('No non-empty lyric lines were found.');
@@ -234,10 +237,23 @@ export function parseLegacyBackupSong(raw: any): Song | null {
   if (Array.isArray(raw.sections) && raw.sections.length > 0) {
     const sections: SongSection[] = raw.sections
       .map((sec: any, idx: number): SongSection | null => {
-        const lyrics = Array.isArray(sec?.lyrics)
-          ? sec.lyrics.map((l: unknown) => String(l).trim()).filter(Boolean)
-          : [];
-        if (lyrics.length === 0) return null;
+        const lyrics: string[] = [];
+        if (Array.isArray(sec?.lyrics)) {
+          for (const rawItem of sec.lyrics) {
+            const trimmed = String(rawItem ?? '').trim();
+            if (!trimmed) {
+              if (lyrics.length > 0 && lyrics[lyrics.length - 1] !== '') {
+                lyrics.push('');
+              }
+            } else {
+              lyrics.push(trimmed);
+            }
+          }
+          while (lyrics.length > 0 && lyrics[lyrics.length - 1] === '') {
+            lyrics.pop();
+          }
+        }
+        if (!lyrics.some((l) => l.length > 0)) return null;
         const secTitle = String(sec?.title || `Section ${idx + 1}`).trim();
         return {
           id: String(sec?.id || `sec-${idx + 1}-${Date.now()}`),
