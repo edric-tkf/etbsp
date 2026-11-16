@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -87,12 +87,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [backupValidation, setBackupValidation] = useState<BackupValidationResult | null>(null);
   const [pendingReplaceConfirm, setPendingReplaceConfirm] = useState(false);
   const [fontError, setFontError] = useState<string | null>(null);
+  const [installedVersion, setInstalledVersion] = useState<string>(APP_VERSION);
   const [updateCheckState, setUpdateCheckState] = useState<{
     checking: boolean;
+    status?: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error';
+    percent?: number;
+    availableVersion?: string;
     message: string | null;
     latestUrl?: string;
     hasUpdate?: boolean;
-  }>({ checking: false, message: null });
+  }>({ checking: false, status: 'idle', message: null });
+
+  const desktopApi =
+    typeof window !== 'undefined' ? (window as any).bibleSongProDesktop : undefined;
+
+  useEffect(() => {
+    if (!isOpen || !desktopApi?.isElectron) return;
+    desktopApi.getAppVersion?.().then((ver: string) => {
+      if (ver) setInstalledVersion(ver);
+    }).catch(() => {});
+
+    const unsubscribe = desktopApi.onUpdateStatus?.((payload: any) => {
+      if (!payload) return;
+      setUpdateCheckState((prev) => ({
+        ...prev,
+        checking: payload.status === 'checking',
+        status: payload.status,
+        percent: typeof payload.percent === 'number' ? payload.percent : prev.percent,
+        availableVersion: payload.version || prev.availableVersion,
+        hasUpdate: payload.status === 'available' || payload.status === 'downloaded',
+        message: payload.message || prev.message,
+      }));
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [isOpen, desktopApi]);
 
   if (!isOpen) return null;
 
@@ -152,13 +182,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleCheckForUpdates = async () => {
-    setUpdateCheckState({ checking: true, message: 'Checking for updates...' });
+    setUpdateCheckState({ checking: true, status: 'checking', message: 'Checking for updates...' });
+
+    if (desktopApi?.isElectron && desktopApi.checkForUpdates) {
+      const desktopRes = await desktopApi.checkForUpdates(preferences.updateRepoUrl);
+      if (desktopRes?.ok) {
+        return;
+      }
+      if (!desktopRes?.fallbackToBrowser) {
+        setUpdateCheckState({
+          checking: false,
+          status: 'error',
+          message: desktopRes?.error || 'Unable to check GitHub Releases.',
+        });
+        return;
+      }
+    }
+
     try {
       const serverRes = await fetch('/api/version', { cache: 'no-store' });
-      let serverVer = APP_VERSION;
+      let serverVer = installedVersion;
       if (serverRes.ok) {
         const json = await serverRes.json();
-        serverVer = String(json.version || APP_VERSION);
+        serverVer = String(json.version || installedVersion);
       }
 
       const repoInput = (preferences.updateRepoUrl || '').trim();
@@ -171,44 +217,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           const rel = await ghRes.json();
           const latestTag = String(rel.tag_name || '').replace(/^v/i, '');
           const releaseUrl = String(rel.html_url || `https://github.com/${cleanedRepo}/releases`);
-          if (latestTag && latestTag !== APP_VERSION) {
+          if (latestTag && latestTag !== installedVersion) {
             setUpdateCheckState({
               checking: false,
+              status: 'available',
               hasUpdate: true,
+              availableVersion: latestTag,
               latestUrl: releaseUrl,
-              message: `New release v${latestTag} available (current v${APP_VERSION}).`,
+              message: `New release v${latestTag} available (current v${installedVersion}).`,
             });
             return;
           }
           setUpdateCheckState({
             checking: false,
+            status: 'up-to-date',
             hasUpdate: false,
             latestUrl: releaseUrl,
-            message: `You are running the latest version (v${APP_VERSION}).`,
+            message: `You are running the latest version (v${installedVersion}).`,
           });
           return;
         }
       }
 
-      if (serverVer !== APP_VERSION) {
+      if (serverVer !== installedVersion) {
         setUpdateCheckState({
           checking: false,
+          status: 'available',
           hasUpdate: true,
           message: `New server build v${serverVer} detected. Click "Reload App" below to update.`,
         });
       } else {
         setUpdateCheckState({
           checking: false,
+          status: 'up-to-date',
           hasUpdate: false,
-          message: `Running ${APP_NAME} v${APP_VERSION}. Everything is up to date.`,
+          message: `Running ${APP_NAME} v${installedVersion}. Everything is up to date.`,
         });
       }
     } catch {
       setUpdateCheckState({
         checking: false,
-        message: `Running ${APP_NAME} v${APP_VERSION}. Unable to reach update server right now.`,
+        status: 'error',
+        message: `Running ${APP_NAME} v${installedVersion}. Unable to reach update server right now.`,
       });
     }
+  };
+
+  const handleDownloadDesktopUpdate = async () => {
+    if (!desktopApi?.downloadUpdate) return;
+    setUpdateCheckState((prev) => ({
+      ...prev,
+      status: 'downloading',
+      percent: 0,
+      message: 'Starting update download...',
+    }));
+    const res = await desktopApi.downloadUpdate();
+    if (!res?.ok) {
+      setUpdateCheckState((prev) => ({
+        ...prev,
+        status: 'error',
+        message: res?.error || 'Download failed.',
+      }));
+    }
+  };
+
+  const handleInstallDesktopUpdate = () => {
+    desktopApi?.installUpdate?.();
   };
 
   const navItems: Array<{ id: SettingsSection; label: string }> = [
@@ -328,17 +402,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="text-xs font-semibold text-white">
-                        {APP_NAME} · Version {APP_VERSION}
+                        {APP_NAME} · Version {installedVersion}
                       </div>
                       <div className="text-[11px] text-slate-400">
-                        Export your data before updating, check for new releases, or reload to apply the latest build.
+                        {desktopApi?.isElectron
+                          ? 'Check for new GitHub Releases and download & install updates in-app without uninstalling.'
+                          : 'Export your data before updating, check for new releases, or reload to apply the latest build.'}
                       </div>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                      GitHub Release Repo (Optional, e.g. owner/et-bsp)
+                      GitHub Release Repo (Auto-configured on CI builds, or override: owner/repo)
                     </label>
                     <input
                       type="text"
@@ -352,13 +428,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      disabled={updateCheckState.checking}
+                      disabled={
+                        updateCheckState.checking || updateCheckState.status === 'downloading'
+                      }
                       onClick={handleCheckForUpdates}
-                      className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-[11px] font-semibold text-white flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-semibold text-white flex items-center gap-1.5"
                     >
-                      <RefreshCw className={`w-3 h-3 ${updateCheckState.checking ? 'animate-spin' : ''}`} />
+                      <RefreshCw
+                        className={`w-3 h-3 ${updateCheckState.checking ? 'animate-spin' : ''}`}
+                      />
                       <span>Check for Updates</span>
                     </button>
+
+                    {desktopApi?.isElectron && updateCheckState.status === 'available' && (
+                      <button
+                        type="button"
+                        onClick={handleDownloadDesktopUpdate}
+                        className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[11px] font-semibold text-white flex items-center gap-1.5"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>
+                          Download Update
+                          {updateCheckState.availableVersion
+                            ? ` (v${updateCheckState.availableVersion})`
+                            : ''}
+                        </span>
+                      </button>
+                    )}
+
+                    {desktopApi?.isElectron && updateCheckState.status === 'downloaded' && (
+                      <button
+                        type="button"
+                        onClick={handleInstallDesktopUpdate}
+                        className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[11px] font-semibold text-white flex items-center gap-1.5"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Restart & Install Update</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -389,6 +496,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </a>
                     )}
                   </div>
+
+                  {updateCheckState.status === 'downloading' && (
+                    <div className="w-full h-1.5 rounded bg-[#11141a] overflow-hidden border border-[#2c323d]">
+                      <div
+                        className="h-full bg-emerald-500 transition-all"
+                        style={{ width: `${Math.max(4, updateCheckState.percent || 0)}%` }}
+                      />
+                    </div>
+                  )}
 
                   {updateCheckState.message && (
                     <div className="text-[11px] text-slate-200 bg-[#11141a] border border-[#2c323d] rounded px-2.5 py-1.5">

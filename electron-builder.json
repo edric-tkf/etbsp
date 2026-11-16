@@ -1,7 +1,6 @@
 {
   "appId": "org.etbsp.studio",
   "productName": "ET BSP",
-  "publish": null,
   "npmRebuild": false,
   "asar": true,
   "directories": {

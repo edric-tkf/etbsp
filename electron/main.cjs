@@ -5,12 +5,79 @@ const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const pkg = require('../package.json');
 
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require('electron-updater'));
+} catch {
+  autoUpdater = null;
+}
+
 let controlWindow = null;
 let displayWindow = null;
 let embeddedServer = null;
 let activePort = Number(process.env.PORT || 3000);
+let updaterInitialized = false;
 
 const EXTERNAL_START_URL = process.env.ELECTRON_START_URL || '';
+
+function sendUpdateStatus(payload) {
+  if (controlWindow && !controlWindow.isDestroyed()) {
+    controlWindow.webContents.send('bsp:update-status', payload);
+  }
+}
+
+function initAutoUpdater() {
+  if (!autoUpdater || updaterInitialized) return;
+  updaterInitialized = true;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus({ status: 'checking', message: 'Checking GitHub Releases for updates...' });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateStatus({
+      status: 'available',
+      version: String(info?.version || ''),
+      message: `Update v${info?.version || ''} is ready to download.`,
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    sendUpdateStatus({
+      status: 'up-to-date',
+      version: String(info?.version || app.getVersion()),
+      message: `Running ET BSP v${app.getVersion()}. You are up to date.`,
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.round(Number(progress?.percent || 0));
+    sendUpdateStatus({
+      status: 'downloading',
+      percent,
+      message: `Downloading update... ${percent}%`,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus({
+      status: 'downloaded',
+      version: String(info?.version || ''),
+      percent: 100,
+      message: `Update v${info?.version || ''} downloaded. Click "Restart & Install Update" to apply.`,
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    sendUpdateStatus({
+      status: 'error',
+      message: err?.message ? `Update check failed: ${err.message}` : 'Update check failed.',
+    });
+  });
+}
 
 function startEmbeddedServer() {
   if (EXTERNAL_START_URL) {
@@ -218,9 +285,74 @@ ipcMain.handle('bsp:get-displays', () => {
   }));
 });
 
+ipcMain.handle('bsp:get-app-version', () => {
+  return app.isPackaged ? app.getVersion() : pkg.version;
+});
+
+ipcMain.handle('bsp:check-for-updates', async (_event, opts) => {
+  if (!autoUpdater || !app.isPackaged) {
+    return {
+      ok: false,
+      fallbackToBrowser: true,
+      reason: !app.isPackaged
+        ? 'In-app installer updates require the installed Windows app.'
+        : 'Updater module not available.',
+    };
+  }
+
+  initAutoUpdater();
+
+  const repoSlug = String(opts?.repoSlug || '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, '')
+    .replace(/\/+$/, '');
+  if (repoSlug && repoSlug.includes('/')) {
+    const [owner, repo] = repoSlug.split('/');
+    if (owner && repo) {
+      autoUpdater.setFeedURL({ provider: 'github', owner, repo });
+    }
+  }
+
+  try {
+    const res = await autoUpdater.checkForUpdates();
+    return { ok: true, version: res?.updateInfo?.version || app.getVersion() };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || 'Unable to check GitHub Releases.',
+    };
+  }
+});
+
+ipcMain.handle('bsp:download-update', async () => {
+  if (!autoUpdater || !app.isPackaged) {
+    return { ok: false, error: 'In-app download requires installed desktop app.' };
+  }
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Failed to download update.' };
+  }
+});
+
+ipcMain.handle('bsp:install-update', () => {
+  if (!autoUpdater || !app.isPackaged) {
+    return { ok: false, error: 'In-app install requires installed desktop app.' };
+  }
+  if (displayWindow && !displayWindow.isDestroyed()) {
+    displayWindow.close();
+  }
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(false, true);
+  });
+  return { ok: true };
+});
+
 app.whenReady().then(async () => {
   baseUrl = await startEmbeddedServer();
   createControlWindow();
+  initAutoUpdater();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createControlWindow();
