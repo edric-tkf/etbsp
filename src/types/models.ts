@@ -150,7 +150,9 @@ export interface DisplaySettings {
   showBibleReferenceLabel: boolean;
   lowerThirdPosition: LowerThirdPosition;
   lowerThirdHeightPercent: number; // 18 to 42
-  lowerThirdOpacity: number; // 0.4 to 1
+  lowerThirdShowBackground: boolean;
+  lowerThirdBgColor: string;
+  lowerThirdOpacity: number; // 0 to 1
   lowerThirdBlur: boolean;
   defaultBibleBackgroundColor: string;
   defaultSongBackgroundColor: string;

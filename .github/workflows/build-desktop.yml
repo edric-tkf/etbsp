@@ -35,7 +35,7 @@ jobs:
       - name: Upload Windows .exe artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Bible-Song-Pro-Windows
+          name: ET-BSP-Windows
           if-no-files-found: error
           path: |
             release/*.exe

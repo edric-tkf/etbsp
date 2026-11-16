@@ -27,6 +27,25 @@ function getSongAdaptiveFontPx(lines: string[], scale: number, lowerThird: boole
   return Math.round(base * scale);
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const cleaned = hex.replace('#', '').trim();
+  if (cleaned.length === 3) {
+    const r = parseInt(cleaned[0] + cleaned[0], 16);
+    const g = parseInt(cleaned[1] + cleaned[1], 16);
+    const b = parseInt(cleaned[2] + cleaned[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (cleaned.length === 6) {
+    const r = parseInt(cleaned.slice(0, 2), 16);
+    const g = parseInt(cleaned.slice(2, 4), 16);
+    const b = parseInt(cleaned.slice(4, 6), 16);
+    if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+  }
+  return `rgba(11, 20, 42, ${alpha})`;
+}
+
 export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
   presentation,
   settings,
@@ -129,14 +148,37 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
     return { backgroundColor: '#090c12' };
   }, [presentation.isLive, presentation.activeType, settings, isTransparentMode, isLowerThird, isPreview]);
 
-  const transitionStyle = useMemo<React.CSSProperties>(() => {
+  const lowerThirdAtTop = settings.lowerThirdPosition === 'top';
+  const showLowerThirdBox =
+    !isTransparentMode &&
+    settings.lowerThirdShowBackground !== false &&
+    (settings.lowerThirdOpacity ?? 0.9) > 0;
+
+  const slideAnimationKey =
+    presentation.isLive && presentation.activeType !== 'none'
+      ? `${presentation.activeType}-${presentation.bibleDisplayMode}-${presentation.revision}`
+      : 'standby';
+
+  const animationStyle = useMemo<React.CSSProperties>(() => {
+    const duration = Math.max(60, settings.transitionDurationMs || 320);
     if (settings.transition === 'cut') {
-      return { transition: 'none' };
+      return { animation: 'none' };
+    }
+    if (settings.transition === 'slide') {
+      const animName = isLowerThird && lowerThirdAtTop ? 'etbsp-slide-in-top' : 'etbsp-slide-in';
+      return {
+        animation: `${animName} ${duration}ms cubic-bezier(0.16, 1, 0.3, 1) both`,
+      };
+    }
+    if (settings.transition === 'zoom') {
+      return {
+        animation: `etbsp-zoom-in ${duration}ms cubic-bezier(0.16, 1, 0.3, 1) both`,
+      };
     }
     return {
-      transition: `opacity ${settings.transitionDurationMs}ms cubic-bezier(0.16, 1, 0.3, 1), transform ${settings.transitionDurationMs}ms cubic-bezier(0.16, 1, 0.3, 1)`,
+      animation: `etbsp-fade-in ${duration}ms cubic-bezier(0.16, 1, 0.3, 1) both`,
     };
-  }, [settings.transition, settings.transitionDurationMs]);
+  }, [settings.transition, settings.transitionDurationMs, isLowerThird, lowerThirdAtTop]);
 
   const alignClass =
     settings.textAlign === 'left'
@@ -150,7 +192,6 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
     : 'none';
 
   const resolvedFont = normalizeFontFamilyName(settings.fontFamily);
-  const lowerThirdAtTop = settings.lowerThirdPosition === 'top';
   const wordSpacingValue = `${settings.wordSpacingPx ?? 0}px`;
   const lineHeightValue = settings.lineHeight ?? 1.25;
   const songGapValue = Math.round((settings.songLineGapPx ?? 16) * fitFactor);
@@ -253,10 +294,11 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
           presentation.activeType !== 'none' &&
           !isLowerThird && (
             <div
+              key={slideAnimationKey}
               className="absolute inset-0 flex flex-col justify-center overflow-hidden"
               style={{
                 padding: `${settings.safeMarginPercent}%`,
-                ...transitionStyle,
+                ...animationStyle,
               }}
             >
               <div
@@ -330,6 +372,7 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
           presentation.activeType !== 'none' &&
           isLowerThird && (
             <div
+              key={slideAnimationKey}
               className={`absolute left-0 right-0 flex justify-center ${
                 lowerThirdAtTop ? 'top-0 items-start' : 'bottom-0 items-end'
               }`}
@@ -342,18 +385,24 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                 paddingBottom: !lowerThirdAtTop
                   ? `${Math.max(2, settings.safeMarginPercent * 0.6)}%`
                   : undefined,
-                ...transitionStyle,
+                ...animationStyle,
               }}
             >
               <div
                 ref={contentBoxRef}
-                className={`w-full rounded-3xl border border-white/15 px-12 py-7 shadow-2xl flex flex-col justify-center overflow-hidden ${alignClass} ${
-                  settings.lowerThirdBlur ? 'backdrop-blur-md' : ''
+                className={`w-full flex flex-col justify-center overflow-hidden ${alignClass} ${
+                  showLowerThirdBox
+                    ? `rounded-3xl border border-white/15 px-12 py-7 shadow-2xl ${
+                        settings.lowerThirdBlur ? 'backdrop-blur-md' : ''
+                      }`
+                    : 'px-6 py-4'
                 }`}
                 style={{
                   minHeight: `${lowerThirdHeightPx}px`,
                   maxHeight: `${Math.max(lowerThirdHeightPx + 100, 440)}px`,
-                  backgroundColor: `rgba(11, 20, 42, ${settings.lowerThirdOpacity})`,
+                  backgroundColor: showLowerThirdBox
+                    ? hexToRgba(settings.lowerThirdBgColor || '#0b142a', settings.lowerThirdOpacity)
+                    : 'transparent',
                 }}
               >
                 {presentation.activeType === 'bible' && bibleSlide && (

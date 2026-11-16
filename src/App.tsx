@@ -1013,6 +1013,7 @@ function ControlPanel() {
                     setSelectedSongSlideIdx(0);
                   }}
                   onProjectSongSlide={projectSongSlide}
+                  onClearOutput={clearOutput}
                   onUpdateSong={handleUpdateSong}
                   onCreateSong={handleCreateSong}
                   onDeleteSong={handleDeleteSong}
@@ -1079,28 +1080,72 @@ function ControlPanel() {
             </div>
 
             {presentation.bibleDisplayMode === 'lower-third' && (
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleChangeLowerThirdPosition('top')}
+                    className={`py-1 px-2 rounded text-[11px] font-medium transition-colors ${
+                      displaySettings.lowerThirdPosition === 'top'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-[#171b22] text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Lower-Third: Top
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleChangeLowerThirdPosition('bottom')}
+                    className={`py-1 px-2 rounded text-[11px] font-medium transition-colors ${
+                      displaySettings.lowerThirdPosition === 'bottom'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-[#171b22] text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Lower-Third: Bottom
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => handleChangeLowerThirdPosition('top')}
-                  className={`py-1 px-2 rounded text-[11px] font-medium transition-colors ${
-                    displaySettings.lowerThirdPosition === 'top'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-[#171b22] text-slate-300 hover:text-white'
+                  onClick={() => {
+                    const isCurrentlyHidden =
+                      displaySettings.backgroundType === 'transparent' ||
+                      displaySettings.transparentBackground ||
+                      displaySettings.lowerThirdShowBackground === false ||
+                      displaySettings.lowerThirdOpacity === 0;
+                    if (isCurrentlyHidden) {
+                      updateDisplaySettings({
+                        lowerThirdShowBackground: true,
+                        lowerThirdOpacity:
+                          displaySettings.lowerThirdOpacity > 0
+                            ? displaySettings.lowerThirdOpacity
+                            : 0.9,
+                        backgroundType:
+                          displaySettings.backgroundType === 'transparent'
+                            ? 'solid'
+                            : displaySettings.backgroundType,
+                        transparentBackground: false,
+                      });
+                    } else {
+                      updateDisplaySettings({ lowerThirdShowBackground: false });
+                    }
+                  }}
+                  className={`w-full py-1 px-2 rounded text-[11px] font-medium border transition-colors ${
+                    displaySettings.backgroundType === 'transparent' ||
+                    displaySettings.transparentBackground ||
+                    displaySettings.lowerThirdShowBackground === false ||
+                    displaySettings.lowerThirdOpacity === 0
+                      ? 'bg-[#171b22] border-[#2c323d] text-slate-300 hover:text-white'
+                      : 'bg-blue-600/20 border-blue-500 text-blue-200'
                   }`}
                 >
-                  Lower-Third: Top
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleChangeLowerThirdPosition('bottom')}
-                  className={`py-1 px-2 rounded text-[11px] font-medium transition-colors ${
-                    displaySettings.lowerThirdPosition === 'bottom'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-[#171b22] text-slate-300 hover:text-white'
-                  }`}
-                >
-                  Lower-Third: Bottom
+                  {displaySettings.backgroundType === 'transparent' ||
+                  displaySettings.transparentBackground ||
+                  displaySettings.lowerThirdShowBackground === false ||
+                  displaySettings.lowerThirdOpacity === 0
+                    ? 'Lower-Third Box Bg: Off (Transparent)'
+                    : 'Lower-Third Box Bg: On'}
                 </button>
               </div>
             )}

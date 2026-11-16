@@ -556,6 +556,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </label>
                 </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-slate-300 mb-1">
+                    <span>Animation Speed (Fade / Slide / Zoom)</span>
+                    <span className="font-mono-tabular">{displaySettings.transitionDurationMs}ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={100}
+                    max={900}
+                    step={20}
+                    value={displaySettings.transitionDurationMs}
+                    onChange={(e) =>
+                      onUpdateDisplaySettings({ transitionDurationMs: Number(e.target.value) })
+                    }
+                    className="w-full accent-blue-500"
+                  />
+                </div>
               </div>
             )}
 
@@ -853,16 +871,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-4 pt-1">
+                    <label className="flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={displaySettings.lowerThirdShowBackground !== false}
+                        onChange={(e) =>
+                          onUpdateDisplaySettings({ lowerThirdShowBackground: e.target.checked })
+                        }
+                        className="accent-blue-500"
+                      />
+                      Show Lower-Third Background Box
+                    </label>
+
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                      <span>Box Color</span>
+                      <input
+                        type="color"
+                        value={displaySettings.lowerThirdBgColor || '#0b142a'}
+                        onChange={(e) =>
+                          onUpdateDisplaySettings({ lowerThirdBgColor: e.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+
                   <div>
                     <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                      <span>Lower-Third Opacity</span>
+                      <span>Lower-Third Background Opacity (0% = No Background)</span>
                       <span className="font-mono-tabular">
                         {Math.round(displaySettings.lowerThirdOpacity * 100)}%
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={0.4}
+                      min={0}
                       max={1}
                       step={0.05}
                       value={displaySettings.lowerThirdOpacity}

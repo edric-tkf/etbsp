@@ -9,6 +9,7 @@ interface SongsWorkspaceProps {
   selectedSlideIndex: number;
   onSelectSong: (songId: string) => void;
   onProjectSongSlide: (song: Song, slideIndex: number) => void;
+  onClearOutput: () => void;
   onUpdateSong: (updated: Song) => void;
   onCreateSong: (song: Song) => void;
   onDeleteSong: (songId: string) => void;
@@ -30,6 +31,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   selectedSlideIndex,
   onSelectSong,
   onProjectSongSlide,
+  onClearOutput,
   onUpdateSong,
   onCreateSong,
   onDeleteSong,
@@ -245,7 +247,14 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
             <button
               key={slide.id}
               type="button"
-              onClick={() => onProjectSongSlide(activeSong, slide.slideIndex)}
+              onClick={() => {
+                if (isLiveSlide) {
+                  onClearOutput();
+                } else {
+                  onProjectSongSlide(activeSong, slide.slideIndex);
+                }
+              }}
+              title={isLiveSlide ? 'Click again to hide lyric' : 'Click to project lyric'}
               className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer ${
                 isLiveSlide
                   ? 'bg-red-950/40 text-white'
