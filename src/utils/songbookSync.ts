@@ -12,10 +12,18 @@ import type { Song, SongbookDocument, SongMergeConflict } from '../types/models'
 import { getSongbookDb, SONGBOOK_COLLECTION } from '../firebase/firebaseClients';
 import { parseSongTXT, songToRawText, sortSongsAlphabetically } from './songEngine';
 
+export const DEFAULT_SONGBOOK_CLASSIFICATION = 'Worship';
+
 export interface SongbookDocPayload {
   title: string;
   artists: string;
   lyrics: string;
+}
+
+export interface SongbookUpdateItem {
+  docId: string;
+  payload: SongbookDocPayload;
+  classification?: string;
 }
 
 export function normalizeSongTitleKey(title: string): string {
@@ -62,9 +70,38 @@ export function songToSongbookPayload(song: Song): SongbookDocPayload {
   };
 }
 
+export function normalizeArtistsString(raw: unknown): string {
+  const parts = Array.isArray(raw)
+    ? raw.map((item) => String(item ?? ''))
+    : typeof raw === 'string'
+    ? raw.split(',')
+    : [];
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      cleaned.push(trimmed);
+    }
+  }
+  return cleaned.join(', ');
+}
+
+export function mergeArtistsValues(localArtists: string, remoteArtists: string): string {
+  const localClean = normalizeArtistsString(localArtists);
+  const remoteClean = normalizeArtistsString(remoteArtists);
+  if (!localClean) return remoteClean;
+  if (!remoteClean) return localClean;
+  if (localClean.toLowerCase() === remoteClean.toLowerCase()) return remoteClean;
+  return normalizeArtistsString([...remoteClean.split(','), ...localClean.split(',')]);
+}
+
 export function parseSongbookDocToSong(remote: SongbookDocument, existingLocal?: Song): Song {
   const cleanTitle = remote.title.trim() || existingLocal?.title || 'Untitled Song';
-  const cleanArtists = remote.artists.trim();
+  const cleanArtists = normalizeArtistsString(remote.artists);
   const rawLyrics = String(remote.lyrics ?? '').replace(/\r/g, '').trim();
   const now = new Date().toISOString();
   const hash = computeSongContentHash(cleanTitle, cleanArtists, rawLyrics);
@@ -111,7 +148,7 @@ export interface ReconcileSongbookOptions {
 export interface ReconcileSongbookResult {
   mergedLocalSongs: Song[];
   toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }>;
-  toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }>;
+  toUpdateInRemote: SongbookUpdateItem[];
   conflicts: SongMergeConflict[];
   removedLocalIds: string[];
   addedFromRemoteCount: number;
@@ -170,7 +207,7 @@ export function reconcileSongbookMerge(
 
   const nextLocalSongs: Song[] = [];
   const toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }> = [];
-  const toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }> = [];
+  const toUpdateInRemote: SongbookUpdateItem[] = [];
   const conflicts: SongMergeConflict[] = [];
   const removedLocalIds: string[] = [];
   let addedFromRemoteCount = 0;
@@ -179,19 +216,59 @@ export function reconcileSongbookMerge(
   for (const { localIdx, remoteIdx } of pairs) {
     const localSong = localSongs[localIdx];
     const remoteDoc = remoteDocs[remoteIdx];
+    const missingRemoteClassification = !remoteDoc.classification?.trim();
 
     const localPayload = songToSongbookPayload(localSong);
     const normLocalLyrics = normalizeLyricsForComparison(localPayload.lyrics);
     const normRemoteLyrics = normalizeLyricsForComparison(remoteDoc.lyrics);
-    const localArtists = localPayload.artists;
-    const remoteArtists = remoteDoc.artists.trim();
+    const localArtists = normalizeArtistsString(localPayload.artists);
+    const remoteArtists = normalizeArtistsString(remoteDoc.artists);
 
     const localHash = computeSongContentHash(localPayload.title, localArtists, localPayload.lyrics);
     const remoteHash = computeSongContentHash(remoteDoc.title, remoteArtists, remoteDoc.lyrics);
 
+    // In auto-sync mode, honor single-side edits (whether title, artists, or lyrics changed)
+    if (options.mode === 'auto-sync' && localSong.lastSyncedHash) {
+      const localUnchanged = localHash === localSong.lastSyncedHash;
+      const remoteUnchanged = remoteHash === localSong.lastSyncedHash;
+
+      if (localUnchanged && !remoteUnchanged) {
+        nextLocalSongs.push(parseSongbookDocToSong(remoteDoc, localSong));
+        if (missingRemoteClassification) {
+          toUpdateInRemote.push({
+            docId: remoteDoc.id,
+            payload: {
+              title: remoteDoc.title.trim() || localPayload.title,
+              artists: remoteArtists,
+              lyrics: remoteDoc.lyrics,
+            },
+            classification: DEFAULT_SONGBOOK_CLASSIFICATION,
+          });
+        }
+        continue;
+      }
+      if (!localUnchanged && remoteUnchanged) {
+        const updatedSong: Song = {
+          ...localSong,
+          artist: localArtists,
+          songbookDocId: remoteDoc.id,
+          lastSyncedHash: localHash,
+        };
+        nextLocalSongs.push(updatedSong);
+        toUpdateInRemote.push({
+          docId: remoteDoc.id,
+          payload: { ...localPayload, artists: localArtists },
+          ...(missingRemoteClassification
+            ? { classification: DEFAULT_SONGBOOK_CLASSIFICATION }
+            : {}),
+        });
+        continue;
+      }
+    }
+
     if (normLocalLyrics === normRemoteLyrics) {
-      // Exact same lyrics (and title): immediately merge!
-      const mergedArtists = remoteArtists || localArtists;
+      // Exact same lyrics (and title): immediately merge and transfer artists both ways!
+      const mergedArtists = mergeArtistsValues(localArtists, remoteArtists);
       const canonicalTitle = remoteDoc.title.trim() || localPayload.title;
       const mergedHash = computeSongContentHash(canonicalTitle, mergedArtists, localPayload.lyrics);
       const mergedSong: Song = {
@@ -203,51 +280,24 @@ export function reconcileSongbookMerge(
       };
       nextLocalSongs.push(mergedSong);
 
-      // Push normalized artists/title if remote was missing them
       if (
         remoteDoc.title.trim() !== canonicalTitle ||
         remoteArtists !== mergedArtists ||
-        normRemoteLyrics !== localPayload.lyrics
+        missingRemoteClassification
       ) {
-        // Only update remote if remote actually differs on title or artists
-        if (remoteDoc.title.trim() !== canonicalTitle || remoteArtists !== mergedArtists) {
-          toUpdateInRemote.push({
-            docId: remoteDoc.id,
-            payload: {
-              title: canonicalTitle,
-              artists: mergedArtists,
-              lyrics: remoteDoc.lyrics || localPayload.lyrics,
-            },
-          });
-        }
-      }
-      continue;
-    }
-
-    // Lyrics differ!
-    if (options.mode === 'auto-sync' && localSong.lastSyncedHash) {
-      const localUnchanged = localHash === localSong.lastSyncedHash;
-      const remoteUnchanged = remoteHash === localSong.lastSyncedHash;
-
-      if (localUnchanged && !remoteUnchanged) {
-        // Remote changed while local was untouched -> auto-apply remote
-        nextLocalSongs.push(parseSongbookDocToSong(remoteDoc, localSong));
-        continue;
-      }
-      if (!localUnchanged && remoteUnchanged) {
-        // Local changed while remote was untouched -> auto-push local
-        const updatedSong: Song = {
-          ...localSong,
-          songbookDocId: remoteDoc.id,
-          lastSyncedHash: localHash,
-        };
-        nextLocalSongs.push(updatedSong);
         toUpdateInRemote.push({
           docId: remoteDoc.id,
-          payload: localPayload,
+          payload: {
+            title: canonicalTitle,
+            artists: mergedArtists,
+            lyrics: remoteDoc.lyrics || localPayload.lyrics,
+          },
+          ...(missingRemoteClassification
+            ? { classification: DEFAULT_SONGBOOK_CLASSIFICATION }
+            : {}),
         });
-        continue;
       }
+      continue;
     }
 
     // Either manual-merge with differing lyrics, or both changed in auto-sync -> user resolves!
@@ -256,7 +306,10 @@ export function reconcileSongbookMerge(
       key: `${localSong.id}__${remoteDoc.id}`,
       title: remoteDoc.title.trim() || localSong.title.trim(),
       localSong,
-      remoteDoc,
+      remoteDoc: {
+        ...remoteDoc,
+        artists: remoteArtists,
+      },
     });
   }
 
@@ -272,9 +325,10 @@ export function reconcileSongbookMerge(
       continue;
     }
 
-    // Otherwise (manual-merge or newly created offline), add to Songbook!
+    // Otherwise (manual-merge or newly created offline), add to Songbook including artists!
     const cleanLocal: Song = {
       ...localSong,
+      artist: normalizeArtistsString(localSong.artist),
       songbookDocId: undefined,
     };
     const payload = songToSongbookPayload(cleanLocal);
@@ -285,12 +339,24 @@ export function reconcileSongbookMerge(
     });
   }
 
-  // Process unmatched remote songs -> add to local ET BSP
+  // Process unmatched remote songs -> add to local ET BSP including artists!
   for (let remoteIdx = 0; remoteIdx < remoteDocs.length; remoteIdx++) {
     if (matchedRemoteIndices.has(remoteIdx)) continue;
     const remoteDoc = remoteDocs[remoteIdx];
     nextLocalSongs.push(parseSongbookDocToSong(remoteDoc));
     addedFromRemoteCount += 1;
+
+    if (!remoteDoc.classification?.trim()) {
+      toUpdateInRemote.push({
+        docId: remoteDoc.id,
+        payload: {
+          title: remoteDoc.title.trim() || 'Untitled Song',
+          artists: normalizeArtistsString(remoteDoc.artists),
+          lyrics: remoteDoc.lyrics,
+        },
+        classification: DEFAULT_SONGBOOK_CLASSIFICATION,
+      });
+    }
   }
 
   return {
@@ -307,8 +373,12 @@ export function mapSnapshotDoc(id: string, data: Record<string, unknown>): Songb
   return {
     id,
     title: typeof data.title === 'string' ? data.title : '',
-    artists: typeof data.artists === 'string' ? data.artists : '',
+    artists: normalizeArtistsString(data.artists ?? data.artist),
     lyrics: typeof data.lyrics === 'string' ? data.lyrics : '',
+    classification:
+      typeof data.classification === 'string' && data.classification.trim()
+        ? data.classification.trim()
+        : undefined,
   };
 }
 
@@ -324,21 +394,34 @@ export async function createSongbookDoc(payload: SongbookDocPayload): Promise<st
     title: payload.title,
     artists: payload.artists,
     lyrics: payload.lyrics,
+    classification: DEFAULT_SONGBOOK_CLASSIFICATION,
   });
   return docRef.id;
 }
 
-export async function upsertSongbookDoc(docId: string, payload: SongbookDocPayload): Promise<void> {
+export async function upsertSongbookDoc(
+  docId: string,
+  payload: SongbookDocPayload,
+  classification?: string
+): Promise<void> {
   const db = getSongbookDb();
-  await setDoc(
-    doc(db, SONGBOOK_COLLECTION, docId),
-    {
-      title: payload.title,
-      artists: payload.artists,
-      lyrics: payload.lyrics,
-    },
-    { merge: true }
-  );
+  const data: Record<string, string> = {
+    title: payload.title,
+    artists: payload.artists,
+    lyrics: payload.lyrics,
+  };
+  if (classification && classification.trim()) {
+    data.classification = classification.trim();
+  }
+  await setDoc(doc(db, SONGBOOK_COLLECTION, docId), data, { merge: true });
+}
+
+export async function ensureSongbookClassification(
+  docId: string,
+  classification: string = DEFAULT_SONGBOOK_CLASSIFICATION
+): Promise<void> {
+  const db = getSongbookDb();
+  await setDoc(doc(db, SONGBOOK_COLLECTION, docId), { classification }, { merge: true });
 }
 
 export async function deleteSongbookDoc(docId: string): Promise<void> {

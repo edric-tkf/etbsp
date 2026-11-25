@@ -97,6 +97,7 @@ export interface SongbookDocument {
   title: string;
   artists: string;
   lyrics: string;
+  classification?: string;
 }
 
 export interface SongMergeConflict {

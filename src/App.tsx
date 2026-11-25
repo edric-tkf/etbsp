@@ -70,8 +70,12 @@ import { useEtOAuth } from './hooks/useEtOAuth';
 import {
   computeSongContentHash,
   createSongbookDoc,
+  DEFAULT_SONGBOOK_CLASSIFICATION,
   deleteSongbookDoc,
+  ensureSongbookClassification,
   fetchAllSongbookDocs,
+  mergeArtistsValues,
+  normalizeArtistsString,
   normalizeLyricsForComparison,
   normalizeSongTitleKey,
   parseSongbookDocToSong,
@@ -80,6 +84,7 @@ import {
   subscribeToSongbookCollection,
   upsertSongbookDoc,
   type SongbookDocPayload,
+  type SongbookUpdateItem,
 } from './utils/songbookSync';
 import { PresentationCanvas } from './components/PresentationCanvas';
 import { DisplayPage } from './components/DisplayPage';
@@ -142,7 +147,7 @@ function ControlPanel() {
     enableAutoMergeAfter: boolean;
     baseLocalSongs: Song[];
     toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }>;
-    toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }>;
+    toUpdateInRemote: SongbookUpdateItem[];
     conflicts: SongMergeConflict[];
     currentIndex: number;
     resolutions: Array<{ conflict: SongMergeConflict; choice: ConflictChoice }>;
@@ -182,6 +187,7 @@ function ControlPanel() {
   const pendingRemoteCreateEchoesRef = useRef<Set<string>>(new Set());
   const pendingRemoteUpdateEchoesRef = useRef<Map<string, string>>(new Map());
   const pendingRemoteDeleteEchoesRef = useRef<Set<string>>(new Set());
+  const pendingClassificationBackfillRef = useRef<Set<string>>(new Set());
   const bibleSearchRef = useRef<HTMLInputElement | null>(null);
   const isResizingSidebar = useRef(false);
 
@@ -771,16 +777,17 @@ function ControlPanel() {
       enableAutoMergeAfter: boolean;
       baseLocalSongs: Song[];
       toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }>;
-      toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }>;
+      toUpdateInRemote: SongbookUpdateItem[];
       resolutions: Array<{ conflict: SongMergeConflict; choice: ConflictChoice }>;
     }) => {
       setIsSongbookSyncing(true);
       try {
         let workingSongs = [...params.baseLocalSongs];
-        const updatesToPush = [...params.toUpdateInRemote];
+        const updatesToPush: SongbookUpdateItem[] = [...params.toUpdateInRemote];
 
         // 1. Apply conflict resolutions
         for (const { conflict, choice } of params.resolutions) {
+          const missingRemoteClassification = !conflict.remoteDoc.classification?.trim();
           if (choice === 'local') {
             const payload = songToSongbookPayload(conflict.localSong);
             const hash = computeSongContentHash(payload.title, payload.artists, payload.lyrics);
@@ -789,16 +796,33 @@ function ControlPanel() {
                 ? { ...s, songbookDocId: conflict.remoteDoc.id, lastSyncedHash: hash }
                 : s
             );
-            updatesToPush.push({ docId: conflict.remoteDoc.id, payload });
+            updatesToPush.push({
+              docId: conflict.remoteDoc.id,
+              payload,
+              ...(missingRemoteClassification
+                ? { classification: DEFAULT_SONGBOOK_CLASSIFICATION }
+                : {}),
+            });
           } else {
             const replacement = parseSongbookDocToSong(conflict.remoteDoc, conflict.localSong);
             workingSongs = workingSongs.map((s) =>
               s.id === conflict.localSong.id ? replacement : s
             );
+            if (missingRemoteClassification) {
+              updatesToPush.push({
+                docId: conflict.remoteDoc.id,
+                payload: {
+                  title: conflict.remoteDoc.title.trim() || replacement.title,
+                  artists: normalizeArtistsString(conflict.remoteDoc.artists),
+                  lyrics: conflict.remoteDoc.lyrics,
+                },
+                classification: DEFAULT_SONGBOOK_CLASSIFICATION,
+              });
+            }
           }
         }
 
-        // 2. Push remote updates (title/artists/lyrics only, preserving other Firestore fields)
+        // 2. Push remote updates (title/artists/lyrics + default Worship classification when missing)
         await Promise.all(
           updatesToPush.map(async (item) => {
             const hash = computeSongContentHash(
@@ -807,7 +831,7 @@ function ControlPanel() {
               item.payload.lyrics
             );
             pendingRemoteUpdateEchoesRef.current.set(item.docId, hash);
-            await upsertSongbookDoc(item.docId, item.payload);
+            await upsertSongbookDoc(item.docId, item.payload, item.classification);
           })
         );
 
@@ -1036,6 +1060,18 @@ function ControlPanel() {
         let localChanged = false;
 
         for (const docItem of upserts) {
+          if (
+            !docItem.classification?.trim() &&
+            !pendingClassificationBackfillRef.current.has(docItem.id)
+          ) {
+            pendingClassificationBackfillRef.current.add(docItem.id);
+            void ensureSongbookClassification(docItem.id, DEFAULT_SONGBOOK_CLASSIFICATION).catch(
+              () => {
+                pendingClassificationBackfillRef.current.delete(docItem.id);
+              }
+            );
+          }
+
           const remoteHash = computeSongContentHash(
             docItem.title,
             docItem.artists,
@@ -1070,25 +1106,60 @@ function ControlPanel() {
 
           const existing = working[existingIdx];
           const localPayload = songToSongbookPayload(existing);
+          const localArtists = normalizeArtistsString(localPayload.artists);
+          const remoteArtists = normalizeArtistsString(docItem.artists);
           const localHash = computeSongContentHash(
             localPayload.title,
-            localPayload.artists,
+            localArtists,
             localPayload.lyrics
           );
 
           if (
             normalizeLyricsForComparison(localPayload.lyrics) ===
               normalizeLyricsForComparison(docItem.lyrics) &&
-            localPayload.artists.trim() === docItem.artists.trim() &&
+            localArtists === remoteArtists &&
             localPayload.title.trim() === docItem.title.trim()
           ) {
             if (existing.songbookDocId !== docItem.id || existing.lastSyncedHash !== remoteHash) {
               working[existingIdx] = {
                 ...existing,
+                artist: remoteArtists,
                 songbookDocId: docItem.id,
                 lastSyncedHash: remoteHash,
               };
               localChanged = true;
+            }
+            continue;
+          }
+
+          // If unlinked song matched by title with identical lyrics, transfer artists both ways
+          if (
+            !existing.songbookDocId &&
+            normalizeLyricsForComparison(localPayload.lyrics) ===
+              normalizeLyricsForComparison(docItem.lyrics)
+          ) {
+            const mergedArtists = mergeArtistsValues(localArtists, remoteArtists);
+            const canonicalTitle = docItem.title.trim() || localPayload.title;
+            const mergedHash = computeSongContentHash(
+              canonicalTitle,
+              mergedArtists,
+              localPayload.lyrics
+            );
+            working[existingIdx] = {
+              ...existing,
+              title: canonicalTitle,
+              artist: mergedArtists,
+              songbookDocId: docItem.id,
+              lastSyncedHash: mergedHash,
+            };
+            localChanged = true;
+            if (remoteArtists !== mergedArtists) {
+              pendingRemoteUpdateEchoesRef.current.set(docItem.id, mergedHash);
+              void upsertSongbookDoc(docItem.id, {
+                title: canonicalTitle,
+                artists: mergedArtists,
+                lyrics: docItem.lyrics || localPayload.lyrics,
+              });
             }
             continue;
           }
@@ -1285,6 +1356,7 @@ function ControlPanel() {
     return sorted.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
+        (s.artist || '').toLowerCase().includes(q) ||
         s.sections.some((sec) => sec.lyrics.some((l) => l.toLowerCase().includes(q)))
     );
   }, [songs, songSidebarSearch]);
@@ -1498,7 +1570,7 @@ function ControlPanel() {
                           style={{
                             minHeight: 'calc(var(--bsp-row-height-px, 54px) * 0.78)',
                           }}
-                          className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2 ${
+                          className={`w-full text-left px-3 py-2 transition-colors flex flex-col justify-center gap-0.5 ${
                             active
                               ? 'bg-blue-600/20 text-white font-semibold'
                               : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
@@ -1506,10 +1578,15 @@ function ControlPanel() {
                         >
                           <span
                             style={{ fontSize: 'calc(var(--bsp-ui-font-px, 14.5px) * 0.92)' }}
-                            className="truncate"
+                            className="truncate w-full"
                           >
                             {song.title}
                           </span>
+                          {song.artist?.trim() && (
+                            <span className="text-xs text-slate-400 font-normal truncate w-full">
+                              {song.artist}
+                            </span>
+                          )}
                         </button>
                       );
                     })

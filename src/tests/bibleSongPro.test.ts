@@ -632,4 +632,126 @@ describe('ET OAuth Allowlist & Songbook Two-Way Merge', () => {
       'Falling down in worship',
     ]);
   });
+
+  it('transfers artists both ways for matched songs and local-only artist edits in auto-sync', () => {
+    // 1. Local has artist, remote has blank artists -> remote receives local artist
+    const localWithArtist = parseSongTXT('[Chorus]\nYou are good', {
+      id: 'l-1',
+      title: 'Goodness',
+      artist: 'Israel Houghton',
+    }).song;
+
+    // 2. Both have different artists with identical lyrics -> merged cleanly to both
+    const localPartialArtist = parseSongTXT('[Chorus]\nHallelujah', {
+      id: 'l-2',
+      title: 'Firm Foundation',
+      artist: 'Cody Carnes',
+    }).song;
+
+    const manualRes = reconcileSongbookMerge(
+      [localWithArtist, localPartialArtist],
+      [
+        {
+          id: 'r-1',
+          title: 'Goodness',
+          artists: '',
+          lyrics: '[Chorus]\nYou are good',
+        },
+        {
+          id: 'r-2',
+          title: 'Firm Foundation',
+          artists: 'Maverick City Music',
+          lyrics: '[Chorus]\nHallelujah',
+        },
+      ],
+      { mode: 'manual-merge' }
+    );
+
+    expect(manualRes.conflicts).toHaveLength(0);
+    expect(manualRes.toUpdateInRemote).toHaveLength(2);
+    expect(manualRes.toUpdateInRemote[0].payload.artists).toBe('Israel Houghton');
+    expect(manualRes.toUpdateInRemote[1].payload.artists).toBe(
+      'Maverick City Music, Cody Carnes'
+    );
+    expect(
+      manualRes.mergedLocalSongs.find((s) => s.title === 'Firm Foundation')?.artist
+    ).toBe('Maverick City Music, Cody Carnes');
+
+    // 3. Auto-sync mode: user edits ONLY artist locally while remote is unchanged -> pushes local artist!
+    const baseline = parseSongbookDocToSong({
+      id: 'r-3',
+      title: 'Trust In God',
+      artists: 'Elevation Worship',
+      lyrics: '[Chorus]\nI sought the Lord',
+    });
+    const locallyEditedArtist = {
+      ...baseline,
+      artist: 'Elevation Worship, Chris Brown',
+    };
+    const autoRes = reconcileSongbookMerge(
+      [locallyEditedArtist],
+      [
+        {
+          id: 'r-3',
+          title: 'Trust In God',
+          artists: 'Elevation Worship',
+          lyrics: '[Chorus]\nI sought the Lord',
+        },
+      ],
+      { mode: 'auto-sync' }
+    );
+
+    expect(autoRes.conflicts).toHaveLength(0);
+    expect(autoRes.mergedLocalSongs[0].artist).toBe('Elevation Worship, Chris Brown');
+    expect(autoRes.toUpdateInRemote).toHaveLength(1);
+    expect(autoRes.toUpdateInRemote[0].payload.artists).toBe(
+      'Elevation Worship, Chris Brown'
+    );
+  });
+
+  it('assigns classification "Worship" to unclassified Songbook docs while preserving existing classifications', () => {
+    const localMatched = parseSongTXT('[Chorus]\nLord I give You my heart', {
+      id: 'l-matched',
+      title: 'I Give You My Heart',
+      artist: 'Hillsong',
+    }).song;
+
+    const remoteMissingClassMatched = {
+      id: 'fb-matched-noclass',
+      title: 'I Give You My Heart',
+      artists: 'Hillsong',
+      lyrics: '[Chorus]\nLord I give You my heart',
+      classification: undefined,
+    };
+
+    const remoteMissingClassOnly = {
+      id: 'fb-remote-noclass',
+      title: 'Ocean Song',
+      artists: 'Hillsong UNITED',
+      lyrics: '[Chorus]\nSpirit lead me',
+      classification: '',
+    };
+
+    const remoteHasClassOnly = {
+      id: 'fb-remote-hasclass',
+      title: 'Amazing Grace',
+      artists: 'Traditional',
+      lyrics: '[Verse 1]\nAmazing grace how sweet the sound',
+      classification: 'Hymn',
+    };
+
+    const res = reconcileSongbookMerge(
+      [localMatched],
+      [remoteMissingClassMatched, remoteMissingClassOnly, remoteHasClassOnly],
+      { mode: 'manual-merge' }
+    );
+
+    expect(res.conflicts).toHaveLength(0);
+    // Only the two unclassified Songbook docs should be updated with classification: "Worship"
+    expect(res.toUpdateInRemote).toHaveLength(2);
+    expect(res.toUpdateInRemote.map((u) => [u.docId, u.classification])).toEqual([
+      ['fb-matched-noclass', 'Worship'],
+      ['fb-remote-noclass', 'Worship'],
+    ]);
+  });
 });
