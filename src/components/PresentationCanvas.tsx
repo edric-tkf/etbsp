@@ -165,6 +165,8 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
   const songLinesUpper = songSlide ? songSlide.lines.slice(0, 2).map((l) => l.toUpperCase()) : [];
 
   const safeMarginPct = Math.max(0, settings.safeMarginPercent ?? 0);
+  const textPadLeftPx = Math.max(0, settings.textPaddingLeftPx ?? 0);
+  const textPadRightPx = Math.max(0, settings.textPaddingRightPx ?? 0);
   const lowerThirdHeightPx = Math.max(
     0,
     Math.round(((settings.lowerThirdHeightPercent ?? 28) / 100) * 1080)
@@ -255,7 +257,13 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                 ...animationStyle,
               }}
             >
-              <div className={`w-full max-h-full overflow-hidden flex flex-col justify-center ${alignClass}`}>
+              <div
+                className={`w-full max-h-full overflow-hidden flex flex-col justify-center ${alignClass}`}
+                style={{
+                  paddingLeft: `${textPadLeftPx}px`,
+                  paddingRight: `${textPadRightPx}px`,
+                }}
+              >
                 {presentation.activeType === 'bible' && bibleSlide && (
                   <>
                     {settings.showBibleReferenceLabel && (
@@ -348,8 +356,8 @@ export const PresentationCanvas: React.FC<PresentationCanvasProps> = ({
                   minHeight: `${lowerThirdHeightPx}px`,
                   paddingTop: `${lowerThirdPadY}px`,
                   paddingBottom: `${lowerThirdPadY}px`,
-                  paddingLeft: `${lowerThirdPadX}px`,
-                  paddingRight: `${lowerThirdPadX}px`,
+                  paddingLeft: `${lowerThirdPadX + textPadLeftPx}px`,
+                  paddingRight: `${lowerThirdPadX + textPadRightPx}px`,
                   backgroundColor: showLowerThirdBox
                     ? hexToRgba(settings.lowerThirdBgColor || '#0b142a', settings.lowerThirdOpacity)
                     : 'transparent',

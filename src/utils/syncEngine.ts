@@ -13,6 +13,7 @@ export type SyncMessage =
   | { type: 'settings:update'; payload: DisplaySettings; senderId: string }
   | { type: 'fonts:update'; payload: CustomFont[]; senderId: string }
   | { type: 'request:sync'; senderId: string }
+  | { type: 'server:hello'; version: string; bootId: string }
   | { type: 'presence'; connectedDisplays: number; connectedPanels: number; timestamp: number };
 
 export interface SyncControllerCallbacks {
@@ -20,6 +21,7 @@ export interface SyncControllerCallbacks {
   onSettingsUpdate?: (settings: DisplaySettings) => void;
   onFontsUpdate?: (fonts: CustomFont[]) => void;
   onSyncRequested?: () => void;
+  onServerHello?: (info: { version: string; bootId: string }) => void;
   onStatusChange?: (status: SyncConnectionState) => void;
 }
 
@@ -119,6 +121,8 @@ export class PresentationSyncClient {
       this.updateStatus({ lastSyncedAt: Date.now() });
     } else if (msg.type === 'request:sync') {
       this.callbacks.onSyncRequested?.();
+    } else if (msg.type === 'server:hello') {
+      this.callbacks.onServerHello?.({ version: msg.version, bootId: msg.bootId });
     } else if (msg.type === 'presence') {
       this.updateStatus({ connectedDisplays: msg.connectedDisplays });
     }

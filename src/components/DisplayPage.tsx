@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { CustomFont, DisplaySettings, PresentationState } from '../types/models';
 import {
   DEFAULT_DISPLAY_SETTINGS,
   INITIAL_PRESENTATION_STATE,
   normalizeDisplaySettings,
 } from '../data/seedData';
-import { LS_KEYS, loadWorkspaceData } from '../utils/storage';
+import { LS_KEYS } from '../utils/storage';
 import { loadCustomFontsIntoDocument } from '../utils/fontEngine';
 import { PresentationSyncClient } from '../utils/syncEngine';
 import { PresentationCanvas } from './PresentationCanvas';
@@ -40,30 +40,83 @@ export const DisplayPage: React.FC = () => {
     }
   });
 
+  const bootIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     loadCustomFontsIntoDocument(customFonts);
   }, [customFonts]);
 
   useEffect(() => {
     let mounted = true;
-    loadWorkspaceData().then((data) => {
-      if (!mounted) return;
-      setPresentation(data.presentationState);
-      setSettings(data.displaySettings);
-      if (data.customFonts.length > 0) {
-        setCustomFonts(data.customFonts);
-      }
-    });
+
+    // Always pull authoritative saved display state from the active server on mount (avoids stale OBS localStorage)
+    fetch('/api/workspace/display', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (!mounted || !payload) return;
+        if (payload.bootId) {
+          bootIdRef.current = String(payload.bootId);
+        }
+        if (payload.presentationState) {
+          setPresentation(payload.presentationState);
+        }
+        if (payload.displaySettings) {
+          const normalized = normalizeDisplaySettings(payload.displaySettings);
+          setSettings(normalized);
+          try {
+            localStorage.setItem(LS_KEYS.DISPLAY_SETTINGS, JSON.stringify(normalized));
+          } catch {
+            // Ignore
+          }
+        }
+        if (Array.isArray(payload.customFonts)) {
+          setCustomFonts(payload.customFonts);
+          try {
+            localStorage.setItem(LS_KEYS.CUSTOM_FONTS, JSON.stringify(payload.customFonts));
+          } catch {
+            // Ignore
+          }
+        }
+      })
+      .catch(() => {});
 
     const sync = new PresentationSyncClient('display', {
+      onServerHello: ({ bootId }) => {
+        if (!bootId) return;
+        if (bootIdRef.current && bootIdRef.current !== bootId) {
+          // Server restarted / app updated to a new build — reload OBS page automatically to pick up latest bundle & styles
+          window.location.reload();
+          return;
+        }
+        bootIdRef.current = bootId;
+      },
       onPresentationUpdate: (nextState) => {
-        if (mounted) setPresentation(nextState);
+        if (!mounted) return;
+        setPresentation(nextState);
+        try {
+          localStorage.setItem(LS_KEYS.PRESENTATION, JSON.stringify(nextState));
+        } catch {
+          // Ignore
+        }
       },
       onSettingsUpdate: (nextSettings) => {
-        if (mounted) setSettings(normalizeDisplaySettings(nextSettings));
+        if (!mounted) return;
+        const normalized = normalizeDisplaySettings(nextSettings);
+        setSettings(normalized);
+        try {
+          localStorage.setItem(LS_KEYS.DISPLAY_SETTINGS, JSON.stringify(normalized));
+        } catch {
+          // Ignore
+        }
       },
       onFontsUpdate: (nextFonts) => {
-        if (mounted) setCustomFonts(nextFonts);
+        if (!mounted) return;
+        setCustomFonts(nextFonts);
+        try {
+          localStorage.setItem(LS_KEYS.CUSTOM_FONTS, JSON.stringify(nextFonts));
+        } catch {
+          // Ignore
+        }
       },
     });
 

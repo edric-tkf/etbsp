@@ -108,8 +108,41 @@ export interface PersistedWorkspaceData {
   presentationState: PresentationState;
 }
 
+async function fetchServerWorkspace(): Promise<{
+  exists: boolean;
+  data: Partial<PersistedWorkspaceData> | null;
+} | null> {
+  if (typeof fetch === 'undefined' || typeof window === 'undefined') return null;
+  try {
+    const res = await fetch('/api/workspace', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return {
+      exists: Boolean(json?.exists && json?.data),
+      data: json?.data || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function pushServerWorkspacePatch(patch: Partial<PersistedWorkspaceData>): Promise<void> {
+  if (typeof fetch === 'undefined' || typeof window === 'undefined') return;
+  try {
+    await fetch('/api/workspace', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+      keepalive: true,
+    });
+  } catch {
+    // Ignore network unavailability in offline unit tests
+  }
+}
+
 export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
   const [
+    serverResult,
     storedTranslations,
     storedSongs,
     storedFonts,
@@ -118,6 +151,7 @@ export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
     storedPrefs,
     storedPres,
   ] = await Promise.all([
+    fetchServerWorkspace(),
     idbGet<BibleTranslation[]>(STORE_COLLECTIONS, 'translations'),
     idbGet<Song[]>(STORE_COLLECTIONS, 'songs'),
     idbGet<CustomFont[]>(STORE_COLLECTIONS, 'customFonts'),
@@ -127,40 +161,67 @@ export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
     idbGet<PresentationState>(STORE_KV, 'presentationState'),
   ]);
 
-  const rawTranslations = storedTranslations || lsGet<BibleTranslation[]>('etbsp:translations') || [];
+  const serverData = serverResult?.exists ? serverResult.data : null;
+
+  const rawTranslations =
+    (Array.isArray(serverData?.translations) ? serverData.translations : undefined) ||
+    storedTranslations ||
+    lsGet<BibleTranslation[]>('etbsp:translations') ||
+    [];
   const translations = sortTranslationsNltFirstNivSecond(
     rawTranslations.map(sanitizeBibleTranslation)
   );
 
-  const rawSongs = storedSongs || lsGet<Song[]>('etbsp:songs') || [];
+  const rawSongs =
+    (Array.isArray(serverData?.songs) ? serverData.songs : undefined) ||
+    storedSongs ||
+    lsGet<Song[]>('etbsp:songs') ||
+    [];
   const songs = sortSongsAlphabetically(rawSongs);
 
-  const customFonts = storedFonts || lsGet<CustomFont[]>(LS_KEYS.CUSTOM_FONTS) || [];
+  const customFonts =
+    (Array.isArray(serverData?.customFonts) ? serverData.customFonts : undefined) ||
+    storedFonts ||
+    lsGet<CustomFont[]>(LS_KEYS.CUSTOM_FONTS) ||
+    [];
 
   const displaySettings: DisplaySettings = normalizeDisplaySettings(
-    storedDisplay || lsGet<DisplaySettings>(LS_KEYS.DISPLAY_SETTINGS)
+    serverData?.displaySettings ||
+      storedDisplay ||
+      lsGet<DisplaySettings>(LS_KEYS.DISPLAY_SETTINGS)
   );
 
   const themeSettings: ThemeSettings = {
     ...DEFAULT_THEME_SETTINGS,
-    ...(storedTheme || lsGet<ThemeSettings>(LS_KEYS.THEME_SETTINGS) || {}),
+    ...(serverData?.themeSettings ||
+      storedTheme ||
+      lsGet<ThemeSettings>(LS_KEYS.THEME_SETTINGS) ||
+      {}),
   };
+
+  const rawPrefs =
+    serverData?.preferences ||
+    storedPrefs ||
+    lsGet<UserPreferences>(LS_KEYS.PREFERENCES);
 
   const preferences: UserPreferences = {
     ...DEFAULT_USER_PREFERENCES,
-    ...(storedPrefs || lsGet<UserPreferences>(LS_KEYS.PREFERENCES) || {}),
+    ...(rawPrefs || {}),
     shortcuts: {
       ...DEFAULT_USER_PREFERENCES.shortcuts,
-      ...((storedPrefs || lsGet<UserPreferences>(LS_KEYS.PREFERENCES))?.shortcuts || {}),
+      ...(rawPrefs?.shortcuts || {}),
     },
   };
 
   const presentationState: PresentationState = {
     ...INITIAL_PRESENTATION_STATE,
-    ...(lsGet<PresentationState>(LS_KEYS.PRESENTATION) || storedPres || {}),
+    ...(serverData?.presentationState ||
+      lsGet<PresentationState>(LS_KEYS.PRESENTATION) ||
+      storedPres ||
+      {}),
   };
 
-  return {
+  const bundle: PersistedWorkspaceData = {
     translations,
     songs,
     customFonts,
@@ -169,43 +230,78 @@ export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
     preferences,
     presentationState,
   };
+
+  // Auto-migrate existing browser/IndexedDB data to disk store on first launch after update
+  if (serverResult && !serverResult.exists) {
+    const hasLocalData =
+      translations.length > 0 ||
+      songs.length > 0 ||
+      customFonts.length > 0 ||
+      Boolean(storedDisplay || lsGet(LS_KEYS.DISPLAY_SETTINGS));
+    if (hasLocalData) {
+      pushServerWorkspacePatch(bundle);
+    }
+  } else if (serverData) {
+    // Mirror server disk store back into browser caches for offline resilience
+    await Promise.all([
+      idbSet(STORE_COLLECTIONS, 'translations', translations),
+      idbSet(STORE_COLLECTIONS, 'songs', songs),
+      idbSet(STORE_COLLECTIONS, 'customFonts', customFonts),
+      idbSet(STORE_KV, 'displaySettings', displaySettings),
+      idbSet(STORE_KV, 'themeSettings', themeSettings),
+      idbSet(STORE_KV, 'preferences', preferences),
+      idbSet(STORE_KV, 'presentationState', presentationState),
+    ]);
+    lsSet(LS_KEYS.DISPLAY_SETTINGS, displaySettings);
+    lsSet(LS_KEYS.CUSTOM_FONTS, customFonts);
+    lsSet(LS_KEYS.PRESENTATION, presentationState);
+  }
+
+  return bundle;
 }
 
 export async function saveTranslations(translations: BibleTranslation[]): Promise<void> {
   const ordered = sortTranslationsNltFirstNivSecond(translations.map(sanitizeBibleTranslation));
   await idbSet(STORE_COLLECTIONS, 'translations', ordered);
   lsSet('etbsp:translations', ordered);
+  await pushServerWorkspacePatch({ translations: ordered });
 }
 
 export async function saveSongs(songs: Song[]): Promise<void> {
   const sorted = sortSongsAlphabetically(songs);
   await idbSet(STORE_COLLECTIONS, 'songs', sorted);
   lsSet('etbsp:songs', sorted);
+  await pushServerWorkspacePatch({ songs: sorted });
 }
 
 export async function saveCustomFonts(fonts: CustomFont[]): Promise<void> {
   await idbSet(STORE_COLLECTIONS, 'customFonts', fonts);
   lsSet(LS_KEYS.CUSTOM_FONTS, fonts);
+  await pushServerWorkspacePatch({ customFonts: fonts });
 }
 
 export async function saveDisplaySettings(settings: DisplaySettings): Promise<void> {
   lsSet(LS_KEYS.DISPLAY_SETTINGS, settings);
   await idbSet(STORE_KV, 'displaySettings', settings);
+  await pushServerWorkspacePatch({ displaySettings: settings });
 }
 
 export async function saveThemeSettings(themes: ThemeSettings): Promise<void> {
   lsSet(LS_KEYS.THEME_SETTINGS, themes);
   await idbSet(STORE_KV, 'themeSettings', themes);
+  await pushServerWorkspacePatch({ themeSettings: themes });
 }
 
 export async function saveUserPreferences(prefs: UserPreferences): Promise<void> {
   lsSet(LS_KEYS.PREFERENCES, prefs);
   await idbSet(STORE_KV, 'preferences', prefs);
+  await pushServerWorkspacePatch({ preferences: prefs });
 }
 
 export async function savePresentationState(state: PresentationState): Promise<void> {
   lsSet(LS_KEYS.PRESENTATION, state);
   await idbSet(STORE_KV, 'presentationState', state);
+  await pushServerWorkspacePatch({ presentationState: state });
 }
 
 export async function clearAllWorkspaceStorage(): Promise<void> {
@@ -219,6 +315,9 @@ export async function clearAllWorkspaceStorage(): Promise<void> {
     localStorage.removeItem(LS_KEYS.PRESENTATION);
     if (typeof indexedDB !== 'undefined') {
       indexedDB.deleteDatabase(DB_NAME);
+    }
+    if (typeof fetch !== 'undefined') {
+      await fetch('/api/workspace', { method: 'DELETE' });
     }
   } catch {
     // Ignore

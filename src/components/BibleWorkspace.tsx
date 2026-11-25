@@ -146,7 +146,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                   key={t.id}
                   type="button"
                   onClick={() => onSelectTranslation(t.id)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                     active
                       ? 'bg-blue-600 text-white'
                       : 'bg-[#20242c] text-slate-300 hover:text-white hover:bg-[#252a33] border border-[#2c323d]'
@@ -164,7 +164,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onChangeBibleDisplayMode('fullscreen')}
-                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
                   bibleDisplayMode === 'fullscreen'
                     ? 'bg-[#252a33] text-white'
                     : 'text-slate-400 hover:text-slate-200'
@@ -175,7 +175,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onChangeBibleDisplayMode('lower-third')}
-                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
                   bibleDisplayMode === 'lower-third'
                     ? 'bg-[#252a33] text-white'
                     : 'text-slate-400 hover:text-slate-200'
@@ -190,7 +190,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeLowerThirdPosition('top')}
-                  className={`px-2 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
                     lowerThirdPosition === 'top'
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-400 hover:text-slate-200'
@@ -201,7 +201,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeLowerThirdPosition('bottom')}
-                  className={`px-2 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
                     lowerThirdPosition === 'bottom'
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-400 hover:text-slate-200'
@@ -215,9 +215,9 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
             <button
               type="button"
               onClick={onOpenImportBible}
-              className="px-2.5 py-1 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-[11px] font-medium text-slate-200 flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              className="px-3 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-200 flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Upload className="w-3 h-3 text-blue-400" />
+              <Upload className="w-3.5 h-3.5 text-blue-400" />
               <span>Import Bible</span>
             </button>
           </div>
@@ -233,7 +233,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
               }}
               className="relative"
             >
-              <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 ref={inputRef}
                 type="text"
@@ -247,7 +247,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                   setShowSuggestions(true);
                 }}
                 placeholder='Search (e.g. "Gen 1:1", "John 3:16")'
-                className="w-full rounded bg-[#11141a] border border-[#2c323d] pl-7 pr-12 py-1.5 text-[11px] text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full rounded bg-[#11141a] border border-[#2c323d] pl-8 pr-12 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
                 type="submit"
@@ -290,7 +290,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                   onSelectReference(nextBook.name, firstCh, firstV);
                 }
               }}
-              className="w-full rounded bg-[#11141a] border border-[#2c323d] px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-blue-500"
+              className="w-full rounded bg-[#11141a] border border-[#2c323d] px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
             >
               {availableBooks.map((b) => (
                 <option key={b.name} value={b.name}>
@@ -309,7 +309,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 const prevCh = availableChapters[currentChapterIdx - 1];
                 onSelectReference(activeBookObj.name, prevCh.number, prevCh.verses[0]?.number || 1);
               }}
-              className="p-1.5 rounded bg-[#20242c] border border-[#2c323d] text-slate-300 hover:text-white disabled:opacity-35"
+              className="p-2 rounded bg-[#20242c] border border-[#2c323d] text-slate-300 hover:text-white disabled:opacity-35"
               aria-label="Previous chapter"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -324,7 +324,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 const chObj = availableChapters.find((c) => c.number === chNum);
                 onSelectReference(activeBookObj.name, chNum, chObj?.verses[0]?.number || 1);
               }}
-              className="flex-1 rounded bg-[#11141a] border border-[#2c323d] px-2.5 py-1.5 text-[11px] text-white font-mono-tabular focus:outline-none focus:border-blue-500"
+              className="flex-1 rounded bg-[#11141a] border border-[#2c323d] px-2.5 py-2 text-xs text-white font-mono-tabular focus:outline-none focus:border-blue-500"
             >
               {availableChapters.map((c) => (
                 <option key={c.number} value={c.number}>
@@ -341,7 +341,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 const nextCh = availableChapters[currentChapterIdx + 1];
                 onSelectReference(activeBookObj.name, nextCh.number, nextCh.verses[0]?.number || 1);
               }}
-              className="p-1.5 rounded bg-[#20242c] border border-[#2c323d] text-slate-300 hover:text-white disabled:opacity-35"
+              className="p-2 rounded bg-[#20242c] border border-[#2c323d] text-slate-300 hover:text-white disabled:opacity-35"
               aria-label="Next chapter"
             >
               <ChevronRight className="w-3.5 h-3.5" />
@@ -387,7 +387,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 key={v.number}
                 type="button"
                 onClick={() => onProjectVerse(bookName, chapNum, v.number)}
-                className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer ${
+                className={`w-full text-left px-3.5 py-3.5 min-h-[50px] flex items-start gap-3 transition-colors cursor-pointer ${
                   isLiveVerse
                     ? 'bg-emerald-950/45 text-white'
                     : isSelected
@@ -396,7 +396,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 }`}
               >
                 <span
-                  className={`min-w-[26px] px-1.5 py-0.5 rounded text-center text-[10px] font-bold font-mono-tabular shrink-0 mt-0.5 ${
+                  className={`min-w-[30px] px-1.5 py-1 rounded text-center text-[11px] font-bold font-mono-tabular shrink-0 mt-0.5 ${
                     isLiveVerse
                       ? 'bg-emerald-600 text-white'
                       : isSelected
@@ -407,12 +407,12 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                   {v.number}
                 </span>
 
-                <span className="flex-1 min-w-0 text-xs leading-snug text-slate-100">
+                <span className="flex-1 min-w-0 text-[13.5px] leading-relaxed text-slate-100">
                   {v.text}
                 </span>
 
                 {isLiveVerse && (
-                  <span className="text-[10px] font-bold text-emerald-400 tracking-wide shrink-0 mt-0.5">
+                  <span className="text-[11px] font-bold text-emerald-400 tracking-wide shrink-0 mt-0.5">
                     LIVE
                   </span>
                 )}

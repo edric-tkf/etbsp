@@ -142,6 +142,8 @@ export interface DisplaySettings {
   wordSpacingPx: number; // -4 to 24
   lineHeight: number; // 0.95 to 2.2
   songLineGapPx: number; // 0 to 64
+  textPaddingLeftPx: number; // 0 to 400
+  textPaddingRightPx: number; // 0 to 400
   textAlign: TextAlignMode;
   textColor: string;
   textShadow: boolean;

@@ -504,8 +504,14 @@ describe('Fixed Pixel Font Sizes & Lower Layout Minimums', () => {
       fullscreenFontSizePx: 52,
       lowerThirdFontSizePx: 30,
       fontSizeScale: 1.5,
+      textPaddingLeftPx: 48,
+      textPaddingRightPx: 64,
     });
     expect(explicit.fullscreenFontSizePx).toBe(52);
     expect(explicit.lowerThirdFontSizePx).toBe(30);
+    expect(explicit.textPaddingLeftPx).toBe(48);
+    expect(explicit.textPaddingRightPx).toBe(64);
+    expect(DEFAULT_DISPLAY_SETTINGS.textPaddingLeftPx).toBe(0);
+    expect(DEFAULT_DISPLAY_SETTINGS.textPaddingRightPx).toBe(0);
   });
 });

@@ -30,6 +30,8 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   wordSpacingPx: 0,
   lineHeight: 1.25,
   songLineGapPx: 16,
+  textPaddingLeftPx: 0,
+  textPaddingRightPx: 0,
   textAlign: 'center',
   textColor: '#ffffff',
   textShadow: true,
@@ -80,6 +82,14 @@ export function normalizeDisplaySettings(
       DEFAULT_DISPLAY_SETTINGS.lowerThirdFontSizePx * legacyScale
     );
   }
+  merged.textPaddingLeftPx =
+    typeof merged.textPaddingLeftPx === 'number' && Number.isFinite(merged.textPaddingLeftPx)
+      ? Math.max(0, merged.textPaddingLeftPx)
+      : 0;
+  merged.textPaddingRightPx =
+    typeof merged.textPaddingRightPx === 'number' && Number.isFinite(merged.textPaddingRightPx)
+      ? Math.max(0, merged.textPaddingRightPx)
+      : 0;
   return merged;
 }
 

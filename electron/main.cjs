@@ -1,4 +1,5 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const express = require('express');
@@ -15,10 +16,47 @@ try {
 let controlWindow = null;
 let displayWindow = null;
 let embeddedServer = null;
+let activeWss = null;
 let activePort = Number(process.env.PORT || 3000);
 let updaterInitialized = false;
 
+const SERVER_BOOT_ID = `${pkg.version}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 const EXTERNAL_START_URL = process.env.ELECTRON_START_URL || '';
+
+function getWorkspaceFilePath() {
+  return path.join(app.getPath('userData'), 'etbsp-workspace.json');
+}
+
+function readWorkspaceFromDisk() {
+  try {
+    const file = getWorkspaceFilePath();
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, 'utf8');
+    if (!raw.trim()) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeWorkspaceToDisk(data) {
+  try {
+    const file = getWorkspaceFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmpFile = `${file}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(data), 'utf8');
+    fs.renameSync(tmpFile, file);
+  } catch (err) {
+    console.error('Failed to persist ET BSP workspace:', err);
+  }
+}
+
+function setNoCacheHeaders(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+}
 
 function sendUpdateStatus(payload) {
   if (controlWindow && !controlWindow.isDestroyed()) {
@@ -86,16 +124,27 @@ function startEmbeddedServer() {
 
   return new Promise((resolve, reject) => {
     const serverApp = express();
-    serverApp.use(express.json({ limit: '15mb' }));
+    serverApp.use(express.json({ limit: '50mb' }));
 
     const distDir = path.join(__dirname, '../dist');
     const server = http.createServer(serverApp);
     const wss = new WebSocketServer({ server, path: '/ws' });
+    activeWss = wss;
 
-    let latestPresentationPayload = null;
-    let latestSettingsPayload = null;
-    let latestFontsPayload = null;
+    let persistedWorkspace = readWorkspaceFromDisk();
+    let latestPresentationPayload = persistedWorkspace?.presentationState || null;
+    let latestSettingsPayload = persistedWorkspace?.displaySettings || null;
+    let latestFontsPayload = persistedWorkspace?.customFonts || null;
     const clientMeta = new Map();
+
+    function persistPartialWorkspace(patch) {
+      persistedWorkspace = {
+        ...(persistedWorkspace || {}),
+        ...patch,
+        updatedAt: Date.now(),
+      };
+      writeWorkspaceToDisk(persistedWorkspace);
+    }
 
     function broadcastPresence() {
       let displayCount = 0;
@@ -117,8 +166,14 @@ function startEmbeddedServer() {
       }
     }
 
-    wss.on('connection', (ws) => {
-      clientMeta.set(ws, { role: 'panel', clientId: 'unknown' });
+    function sendHelloAndLatest(ws) {
+      ws.send(
+        JSON.stringify({
+          type: 'server:hello',
+          version: app.isPackaged ? app.getVersion() : pkg.version,
+          bootId: SERVER_BOOT_ID,
+        })
+      );
       if (latestPresentationPayload) {
         ws.send(JSON.stringify({ type: 'presentation:update', payload: latestPresentationPayload }));
       }
@@ -128,6 +183,11 @@ function startEmbeddedServer() {
       if (latestFontsPayload) {
         ws.send(JSON.stringify({ type: 'fonts:update', payload: latestFontsPayload }));
       }
+    }
+
+    wss.on('connection', (ws) => {
+      clientMeta.set(ws, { role: 'panel', clientId: 'unknown' });
+      sendHelloAndLatest(ws);
 
       ws.on('message', (raw) => {
         try {
@@ -138,21 +198,19 @@ function startEmbeddedServer() {
               clientId: String(parsed.clientId || 'unknown'),
             });
             broadcastPresence();
-            if (latestPresentationPayload) {
-              ws.send(JSON.stringify({ type: 'presentation:update', payload: latestPresentationPayload }));
-            }
-            if (latestSettingsPayload) {
-              ws.send(JSON.stringify({ type: 'settings:update', payload: latestSettingsPayload }));
-            }
-            if (latestFontsPayload) {
-              ws.send(JSON.stringify({ type: 'fonts:update', payload: latestFontsPayload }));
-            }
+            sendHelloAndLatest(ws);
             return;
           }
-          if (parsed.type === 'presentation:update') latestPresentationPayload = parsed.payload;
-          else if (parsed.type === 'settings:update') latestSettingsPayload = parsed.payload;
-          else if (parsed.type === 'fonts:update') latestFontsPayload = parsed.payload;
-          else if (parsed.type === 'ping') {
+          if (parsed.type === 'presentation:update') {
+            latestPresentationPayload = parsed.payload;
+            persistPartialWorkspace({ presentationState: parsed.payload });
+          } else if (parsed.type === 'settings:update') {
+            latestSettingsPayload = parsed.payload;
+            persistPartialWorkspace({ displaySettings: parsed.payload });
+          } else if (parsed.type === 'fonts:update') {
+            latestFontsPayload = parsed.payload;
+            persistPartialWorkspace({ customFonts: parsed.payload });
+          } else if (parsed.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
             return;
           }
@@ -174,24 +232,104 @@ function startEmbeddedServer() {
     });
 
     serverApp.get('/api/health', (_req, res) => {
-      res.json({ ok: true, service: 'ET BSP Desktop', version: pkg.version, port: activePort });
+      setNoCacheHeaders(res);
+      res.json({
+        ok: true,
+        service: 'ET BSP Desktop',
+        version: app.isPackaged ? app.getVersion() : pkg.version,
+        bootId: SERVER_BOOT_ID,
+        port: activePort,
+      });
     });
 
     serverApp.get('/api/version', (_req, res) => {
-      res.json({ app: 'ET BSP', version: pkg.version, timestamp: Date.now() });
+      setNoCacheHeaders(res);
+      res.json({
+        app: 'ET BSP',
+        version: app.isPackaged ? app.getVersion() : pkg.version,
+        bootId: SERVER_BOOT_ID,
+        timestamp: Date.now(),
+      });
+    });
+
+    serverApp.get('/api/workspace', (_req, res) => {
+      setNoCacheHeaders(res);
+      res.json({
+        exists: Boolean(persistedWorkspace),
+        bootId: SERVER_BOOT_ID,
+        data: persistedWorkspace,
+      });
+    });
+
+    serverApp.get('/api/workspace/display', (_req, res) => {
+      setNoCacheHeaders(res);
+      res.json({
+        bootId: SERVER_BOOT_ID,
+        version: app.isPackaged ? app.getVersion() : pkg.version,
+        presentationState: latestPresentationPayload || persistedWorkspace?.presentationState || null,
+        displaySettings: latestSettingsPayload || persistedWorkspace?.displaySettings || null,
+        customFonts: latestFontsPayload || persistedWorkspace?.customFonts || null,
+      });
+    });
+
+    serverApp.put('/api/workspace', (req, res) => {
+      setNoCacheHeaders(res);
+      const body = req.body;
+      if (!body || typeof body !== 'object') {
+        res.status(400).json({ ok: false, error: 'Invalid workspace payload' });
+        return;
+      }
+      const patch = {};
+      if (Array.isArray(body.translations)) patch.translations = body.translations;
+      if (Array.isArray(body.songs)) patch.songs = body.songs;
+      if (Array.isArray(body.customFonts)) {
+        patch.customFonts = body.customFonts;
+        latestFontsPayload = body.customFonts;
+      }
+      if (body.displaySettings && typeof body.displaySettings === 'object') {
+        patch.displaySettings = body.displaySettings;
+        latestSettingsPayload = body.displaySettings;
+      }
+      if (body.themeSettings && typeof body.themeSettings === 'object') {
+        patch.themeSettings = body.themeSettings;
+      }
+      if (body.preferences && typeof body.preferences === 'object') {
+        patch.preferences = body.preferences;
+      }
+      if (body.presentationState && typeof body.presentationState === 'object') {
+        patch.presentationState = body.presentationState;
+        latestPresentationPayload = body.presentationState;
+      }
+      persistPartialWorkspace(patch);
+      res.json({ ok: true, updatedAt: persistedWorkspace?.updatedAt || Date.now() });
+    });
+
+    serverApp.delete('/api/workspace', (_req, res) => {
+      setNoCacheHeaders(res);
+      persistedWorkspace = null;
+      latestPresentationPayload = null;
+      latestSettingsPayload = null;
+      latestFontsPayload = null;
+      try {
+        const file = getWorkspaceFilePath();
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {
+        // Ignore
+      }
+      res.json({ ok: true });
     });
 
     serverApp.use(
       express.static(distDir, {
         setHeaders: (res, filePath) => {
           if (filePath.endsWith('.html')) {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            setNoCacheHeaders(res);
           }
         },
       })
     );
     serverApp.get('*', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      setNoCacheHeaders(res);
       res.sendFile(path.join(distDir, 'index.html'));
     });
 
@@ -381,11 +519,35 @@ if (!gotSingleInstanceLock) {
   });
 }
 
-app.on('window-all-closed', () => {
+function shutdownEmbeddedServer() {
+  if (activeWss) {
+    try {
+      for (const client of activeWss.clients) {
+        client.terminate();
+      }
+      activeWss.close();
+    } catch {
+      // Ignore
+    }
+    activeWss = null;
+  }
   if (embeddedServer) {
-    embeddedServer.close();
+    try {
+      embeddedServer.closeAllConnections?.();
+      embeddedServer.close();
+    } catch {
+      // Ignore
+    }
     embeddedServer = null;
   }
+}
+
+app.on('before-quit', () => {
+  shutdownEmbeddedServer();
+});
+
+app.on('window-all-closed', () => {
+  shutdownEmbeddedServer();
   if (process.platform !== 'darwin') {
     app.quit();
   }

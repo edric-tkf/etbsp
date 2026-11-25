@@ -194,6 +194,15 @@ function ControlPanel() {
         setSelectedSongId(sortedSongs[0].id);
       }
 
+      presentationRef.current = data.presentationState;
+      displaySettingsRef.current = data.displaySettings;
+      customFontsRef.current = data.customFonts;
+
+      // Push authoritative hydrated settings, fonts, and state to any connected OBS / Display immediately
+      syncRef.current?.publishSettings(data.displaySettings);
+      syncRef.current?.publishFonts(data.customFonts);
+      syncRef.current?.publishPresentation(data.presentationState);
+
       setHydrated(true);
     });
     return () => {
@@ -758,28 +767,28 @@ function ControlPanel() {
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#11141a] text-slate-100 text-xs">
       {/* TOP TITLE BAR */}
-      <header className="h-10 shrink-0 px-3.5 border-b border-[#252a33] bg-[#171b22] flex items-center justify-between gap-3">
+      <header className="h-11 shrink-0 px-3.5 border-b border-[#252a33] bg-[#171b22] flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center shrink-0">
-            <Radio className="w-3.5 h-3.5 text-white" />
+          <div className="w-7 h-7 rounded bg-blue-600 flex items-center justify-center shrink-0">
+            <Radio className="w-4 h-4 text-white" />
           </div>
-          <h1 className="font-display text-xs font-bold tracking-tight text-white whitespace-nowrap shrink-0">
+          <h1 className="font-display text-sm font-bold tracking-tight text-white whitespace-nowrap shrink-0">
             {APP_NAME}
           </h1>
-          <span className="hidden sm:inline text-[11px] text-slate-400 whitespace-nowrap">
+          <span className="hidden sm:inline text-xs text-slate-400 whitespace-nowrap">
             · Broadcast Console
           </span>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
           <div
-            className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded bg-[#20242c] border border-[#2c323d] text-[11px]"
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#20242c] border border-[#2c323d] text-xs"
             title="Real-time BroadcastChannel & WebSocket display synchronization status"
           >
             {syncStatus.wsStatus === 'connected' ? (
-              <Wifi className="w-3 h-3 text-emerald-400" />
+              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
-              <WifiOff className="w-3 h-3 text-amber-400" />
+              <WifiOff className="w-3.5 h-3.5 text-amber-400" />
             )}
             <span className="text-slate-300 whitespace-nowrap">
               {syncStatus.wsStatus === 'connected' ? 'Sync Ready' : 'Local Channel'}
@@ -793,18 +802,18 @@ function ControlPanel() {
           <button
             type="button"
             onClick={() => copyText(obsDisplayUrl, 'OBS Display URL')}
-            className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-[11px] font-medium text-slate-200 whitespace-nowrap shrink-0 transition-colors"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-200 whitespace-nowrap shrink-0 transition-colors"
           >
-            <Copy className="w-3 h-3 text-blue-400" />
+            <Copy className="w-3.5 h-3.5 text-blue-400" />
             <span>Copy OBS URL</span>
           </button>
 
           <button
             type="button"
             onClick={openStandaloneDisplay}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-[11px] font-semibold text-white whitespace-nowrap shrink-0 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white whitespace-nowrap shrink-0 transition-colors"
           >
-            <ExternalLink className="w-3 h-3" />
+            <ExternalLink className="w-3.5 h-3.5" />
             <span>Open Display</span>
           </button>
 
@@ -816,9 +825,9 @@ function ControlPanel() {
             className="p-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-slate-300 hover:text-white transition-colors"
           >
             {preferences.quickActionsOpen ? (
-              <PanelRightClose className="w-3.5 h-3.5" />
+              <PanelRightClose className="w-4 h-4" />
             ) : (
-              <PanelRightOpen className="w-3.5 h-3.5" />
+              <PanelRightOpen className="w-4 h-4" />
             )}
           </button>
 
@@ -829,7 +838,7 @@ function ControlPanel() {
             title="Settings (Ctrl/Cmd + ,)"
             className="p-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-slate-300 hover:text-white transition-colors"
           >
-            <SettingsIcon className="w-3.5 h-3.5" />
+            <SettingsIcon className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -842,7 +851,7 @@ function ControlPanel() {
           className="shrink-0 bg-[#171b22] border-r border-[#252a33] flex flex-col min-h-0"
         >
           {/* Primary 2 Navigation Tabs (Bible & Songs) */}
-          <nav className="p-2 grid grid-cols-2 gap-1 border-b border-[#252a33]" aria-label="Primary modules">
+          <nav className="p-2 grid grid-cols-2 gap-1.5 border-b border-[#252a33]" aria-label="Primary modules">
             {(
               [
                 { id: 'bible', label: 'Bible', icon: BookOpen },
@@ -856,13 +865,13 @@ function ControlPanel() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-semibold transition-colors whitespace-nowrap ${
                     active
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <Icon className="w-4 h-4 shrink-0" />
                   <span>{tab.label}</span>
                 </button>
               );
@@ -873,11 +882,11 @@ function ControlPanel() {
           <div className="flex-1 overflow-y-auto p-2 flex flex-col min-h-0">
             {activeTab === 'bible' && (
               <div className="flex-1 min-h-0 flex flex-col">
-                <div className="text-[11px] font-semibold text-slate-400 px-1.5 mb-1.5">
+                <div className="text-xs font-semibold text-slate-400 px-1.5 mb-1.5">
                   {activeTranslation ? `Books in ${activeTranslation.abbreviation}` : 'Bible Books'}
                 </div>
                 {!activeTranslation ? (
-                  <div className="text-[11px] text-slate-500 px-1.5">
+                  <div className="text-xs text-slate-500 px-1.5">
                     Import a Bible translation to browse books.
                   </div>
                 ) : (
@@ -893,14 +902,14 @@ function ControlPanel() {
                             setSelectedChapter(b.chapters[0]?.number || 1);
                             setSelectedVerse(b.chapters[0]?.verses[0]?.number || 1);
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 text-[11px] transition-colors flex items-center justify-between ${
+                          className={`w-full text-left px-3 py-2.5 text-[13px] transition-colors flex items-center justify-between ${
                             active
                               ? 'bg-blue-600/20 text-white font-semibold'
                               : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
                           }`}
                         >
                           <span className="truncate">{b.name}</span>
-                          <span className="text-[10px] font-mono-tabular text-slate-500">
+                          <span className="text-[11px] font-mono-tabular text-slate-500">
                             {b.chapters.length}
                           </span>
                         </button>
@@ -914,18 +923,18 @@ function ControlPanel() {
             {activeTab === 'songs' && (
               <div className="flex-1 min-h-0 flex flex-col gap-2">
                 <div className="relative shrink-0">
-                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={songSidebarSearch}
                     onChange={(e) => setSongSidebarSearch(e.target.value)}
                     placeholder="Filter songs..."
-                    className="w-full rounded bg-[#11141a] border border-[#2c323d] pl-7 pr-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-blue-500"
+                    className="w-full rounded bg-[#11141a] border border-[#2c323d] pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div className="flex-1 overflow-y-auto divide-y divide-[#252a33] rounded bg-[#11141a] border border-[#252a33]">
                   {filteredSongsForSidebar.length === 0 ? (
-                    <div className="p-3 text-[11px] text-slate-500 text-center">
+                    <div className="p-3 text-xs text-slate-500 text-center">
                       No songs found.
                     </div>
                   ) : (
@@ -939,13 +948,13 @@ function ControlPanel() {
                             setSelectedSongId(song.id);
                             setSelectedSongSlideIdx(0);
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 transition-colors flex items-center justify-between gap-2 ${
+                          className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2 ${
                             active
                               ? 'bg-blue-600/20 text-white font-semibold'
                               : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
                           }`}
                         >
-                          <span className="text-[11px] truncate">{song.title}</span>
+                          <span className="text-[13px] truncate">{song.title}</span>
                         </button>
                       );
                     })
@@ -1223,27 +1232,27 @@ function ControlPanel() {
       </div>
 
       {/* BOTTOM TRANSPORT & PROJECTION BAR */}
-      <footer className="h-11 shrink-0 px-3.5 border-t border-[#252a33] bg-[#171b22] flex items-center justify-between gap-3">
+      <footer className="h-12 shrink-0 px-3.5 border-t border-[#252a33] bg-[#171b22] flex items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => stepSlide(-1)}
-            className="px-2.5 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-[11px] font-semibold text-slate-200 flex items-center gap-1 transition-colors"
+            className="px-3 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-semibold text-slate-200 flex items-center gap-1 transition-colors"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-4 h-4" />
             <span>Previous</span>
           </button>
 
           <button
             type="button"
             onClick={() => stepSlide(1)}
-            className="px-2.5 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-[11px] font-semibold text-slate-200 flex items-center gap-1 transition-colors"
+            className="px-3 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-semibold text-slate-200 flex items-center gap-1 transition-colors"
           >
             <span>Next</span>
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-4 h-4" />
           </button>
 
-          <div className="hidden md:flex items-center gap-2 ml-2 text-[11px] text-slate-400 font-mono-tabular">
+          <div className="hidden md:flex items-center gap-2 ml-2 text-xs text-slate-400 font-mono-tabular">
             {activeTab === 'bible' && activeTranslation && (
               <span>
                 Selected: {selectedBook} {selectedChapter}:{selectedVerse} ({activeTranslation.abbreviation})
@@ -1259,16 +1268,16 @@ function ControlPanel() {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-[11px] font-medium text-slate-300"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-300"
           >
-            <Keyboard className="w-3 h-3" />
+            <Keyboard className="w-3.5 h-3.5" />
             <span>Shortcuts</span>
           </button>
 
           <button
             type="button"
             onClick={clearOutput}
-            className="px-3 py-1.5 rounded bg-[#252a33] hover:bg-[#313844] border border-[#38404f] text-[11px] font-semibold text-slate-100 flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-1.5 rounded bg-[#252a33] hover:bg-[#313844] border border-[#38404f] text-xs font-semibold text-slate-100 flex items-center gap-1.5 transition-colors"
           >
             <Square className="w-3 h-3 fill-current" />
             <span>Clear Output</span>
@@ -1277,9 +1286,9 @@ function ControlPanel() {
           <button
             type="button"
             onClick={handleProjectCurrentSelection}
-            className={`px-3.5 py-1.5 rounded text-[11px] font-bold flex items-center gap-1.5 shadow-lg transition-colors whitespace-nowrap ${projectLiveColorClass}`}
+            className={`px-4 py-1.5 rounded text-xs font-bold flex items-center gap-1.5 shadow-lg transition-colors whitespace-nowrap ${projectLiveColorClass}`}
           >
-            <Play className="w-3 h-3 fill-current" />
+            <Play className="w-3.5 h-3.5 fill-current" />
             <span>Project Live</span>
           </button>
         </div>

@@ -974,6 +974,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full accent-blue-500"
                     />
                   </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                      <span>Left Edge Padding</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={400}
+                          step={2}
+                          aria-label="Left Edge Padding (px)"
+                          value={displaySettings.textPaddingLeftPx ?? 0}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            if (!Number.isNaN(v)) {
+                              onUpdateDisplaySettings({
+                                textPaddingLeftPx: Math.max(0, Math.min(400, Math.round(v))),
+                              });
+                            }
+                          }}
+                          className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                        />
+                        <span className="font-mono-tabular text-slate-400">px</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={400}
+                      step={4}
+                      value={Math.min(400, Math.max(0, displaySettings.textPaddingLeftPx ?? 0))}
+                      onChange={(e) =>
+                        onUpdateDisplaySettings({ textPaddingLeftPx: Number(e.target.value) })
+                      }
+                      className="w-full accent-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                      <span>Right Edge Padding</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={400}
+                          step={2}
+                          aria-label="Right Edge Padding (px)"
+                          value={displaySettings.textPaddingRightPx ?? 0}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            if (!Number.isNaN(v)) {
+                              onUpdateDisplaySettings({
+                                textPaddingRightPx: Math.max(0, Math.min(400, Math.round(v))),
+                              });
+                            }
+                          }}
+                          className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                        />
+                        <span className="font-mono-tabular text-slate-400">px</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={400}
+                      step={4}
+                      value={Math.min(400, Math.max(0, displaySettings.textPaddingRightPx ?? 0))}
+                      onChange={(e) =>
+                        onUpdateDisplaySettings({ textPaddingRightPx: Number(e.target.value) })
+                      }
+                      className="w-full accent-blue-500"
+                    />
+                  </div>
                 </div>
               </div>
             )}
