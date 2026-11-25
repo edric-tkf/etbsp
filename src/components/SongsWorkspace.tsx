@@ -11,12 +11,15 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
-import type { EtOAuthUser, PresentationState, Song } from '../types/models';
+import type { EtOAuthUser, PresentationState, Song, SongCategory } from '../types/models';
 import { computeSongSlides, parseSongTXT, songToRawText } from '../utils/songEngine';
 import { OnScreenKeyboard, type OnScreenKeyAction } from './OnScreenKeyboard';
 
 interface SongsWorkspaceProps {
   songs: Song[];
+  totalSongCount: number;
+  songCategory: SongCategory;
+  onChangeSongCategory: (category: SongCategory) => void;
   selectedSongId: string;
   selectedSlideIndex: number;
   onSelectSong: (songId: string) => void;
@@ -45,6 +48,9 @@ Chorus lyrics`;
 
 export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   songs,
+  totalSongCount,
+  songCategory,
+  onChangeSongCategory,
   selectedSongId,
   selectedSlideIndex,
   onSelectSong,
@@ -429,12 +435,25 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   );
 
   if (!activeSong) {
+    const isCategoryEmpty = totalSongCount > 0;
+    const otherCategory: SongCategory = songCategory === 'demos' ? 'general' : 'demos';
+    const otherLabel = otherCategory === 'demos' ? 'Demos' : 'General';
     return (
       <div className="h-full rounded-lg bg-[#171b22] border border-[#2c323d] flex flex-col items-center justify-center p-6 text-center">
         <Music2 className="w-9 h-9 text-slate-500 mb-3" />
-        <h3 className="text-sm font-semibold text-white">Your Song Library Is Empty</h3>
+        <h3 className="text-sm font-semibold text-white">
+          {isCategoryEmpty
+            ? songCategory === 'demos'
+              ? 'No Songs in Demos'
+              : 'No Songs in General'
+            : 'Your Song Library Is Empty'}
+        </h3>
         <p className="text-xs text-slate-400 mt-1 max-w-sm">
-          Create a song with section tags like [Verse 1] and [Chorus], merge with Songbook, or restore a backup in Settings.
+          {isCategoryEmpty
+            ? songCategory === 'demos'
+              ? 'Songs with author Demos, Planetshakers, or planetboom are automatically grouped under Demos.'
+              : 'All songs except those by Demos, Planetshakers, or planetboom appear under General.'
+            : 'Create a song with section tags like [Verse 1] and [Chorus], merge with Songbook, or restore a backup in Settings.'}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <button
@@ -445,6 +464,15 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
             <Plus className="w-4 h-4" />
             <span>New Song</span>
           </button>
+          {isCategoryEmpty && (
+            <button
+              type="button"
+              onClick={() => onChangeSongCategory(otherCategory)}
+              className="px-3 py-2 rounded-lg bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-200"
+            >
+              Switch to {otherLabel}
+            </button>
+          )}
           {renderSongbookSyncButton()}
           <button
             type="button"
@@ -468,6 +496,15 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-sm font-bold text-white truncate">{activeSong.title}</h2>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[11px] font-semibold border shrink-0 ${
+                songCategory === 'demos'
+                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                  : 'bg-[#20242c] border-[#2c323d] text-slate-300'
+              }`}
+            >
+              {songCategory === 'demos' ? 'Demos' : 'General'}
+            </span>
             {activeSong.artist?.trim() && (
               <span className="text-xs text-slate-400 truncate">· {activeSong.artist}</span>
             )}

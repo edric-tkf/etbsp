@@ -31,6 +31,7 @@ import type {
   MainTab,
   PresentationState,
   Song,
+  SongCategory,
   SongbookDocument,
   SongMergeConflict,
   SyncConnectionState,
@@ -51,7 +52,12 @@ import {
   buildSingleVerseSlidePayload,
   sortTranslationsNltFirstNivSecond,
 } from './utils/bibleEngine';
-import { computeSongSlides, sortSongsAlphabetically } from './utils/songEngine';
+import {
+  computeSongSlides,
+  getSongCategory,
+  partitionSongsByCategory,
+  sortSongsAlphabetically,
+} from './utils/songEngine';
 import { mergeBackupData, replaceBackupData } from './utils/backupEngine';
 import { loadCustomFontsIntoDocument } from './utils/fontEngine';
 import {
@@ -134,6 +140,7 @@ function ControlPanel() {
   const [selectedChapter, setSelectedChapter] = useState<number>(1);
   const [selectedVerse, setSelectedVerse] = useState<number>(1);
 
+  const [songCategory, setSongCategory] = useState<SongCategory>('general');
   const [songSidebarSearch, setSongSidebarSearch] = useState('');
   const [selectedSongId, setSelectedSongId] = useState<string>('');
   const [selectedSongSlideIdx, setSelectedSongSlideIdx] = useState<number>(0);
@@ -244,7 +251,14 @@ function ControlPanel() {
       }
 
       if (sortedSongs[0]) {
-        setSelectedSongId(sortedSongs[0].id);
+        const { general, demos } = partitionSongsByCategory(sortedSongs);
+        if (general[0]) {
+          setSongCategory('general');
+          setSelectedSongId(general[0].id);
+        } else if (demos[0]) {
+          setSongCategory('demos');
+          setSelectedSongId(demos[0].id);
+        }
       }
 
       presentationRef.current = data.presentationState;
@@ -344,9 +358,31 @@ function ControlPanel() {
     [translations, selectedTranslationId]
   );
 
+  const { general: generalSongs, demos: demosSongs } = useMemo(
+    () => partitionSongsByCategory(songs),
+    [songs]
+  );
+
+  const categorySongs = useMemo(
+    () => (songCategory === 'demos' ? demosSongs : generalSongs),
+    [songCategory, demosSongs, generalSongs]
+  );
+
+  const handleChangeSongCategory = useCallback(
+    (nextCategory: SongCategory) => {
+      setSongCategory(nextCategory);
+      const nextList = nextCategory === 'demos' ? demosSongs : generalSongs;
+      setSelectedSongId((prevId) =>
+        nextList.some((s) => s.id === prevId) ? prevId : nextList[0]?.id || ''
+      );
+      setSelectedSongSlideIdx(0);
+    },
+    [demosSongs, generalSongs]
+  );
+
   const activeSong = useMemo(
-    () => songs.find((s) => s.id === selectedSongId) || songs[0] || null,
-    [songs, selectedSongId]
+    () => categorySongs.find((s) => s.id === selectedSongId) || categorySongs[0] || null,
+    [categorySongs, selectedSongId]
   );
   const activeSongSlides = useMemo(
     () => (activeSong ? computeSongSlides(activeSong) : []),
@@ -651,6 +687,7 @@ function ControlPanel() {
       saveSongs(next);
       return next;
     });
+    setSongCategory(getSongCategory(song));
     setSelectedSongId(song.id);
     setSelectedSongSlideIdx(0);
     setActiveTab('songs');
@@ -695,6 +732,7 @@ function ControlPanel() {
       saveSongs(next);
       return next;
     });
+    setSongCategory(getSongCategory(updated));
     pushToast('success', 'Song Updated', `"${updated.title}" saved.`);
 
     if (preferencesRef.current.songbookAutoMerge && isOAuthAuthorized) {
@@ -737,11 +775,13 @@ function ControlPanel() {
       message: `Are you sure you want to delete "${target.title}"? This action cannot be undone.`,
       confirmLabel: 'Delete Song',
       onConfirm: () => {
+        const deletedCategory = getSongCategory(target);
         setSongs((prev) => {
           const next = sortSongsAlphabetically(prev.filter((s) => s.id !== songId));
           saveSongs(next);
           if (selectedSongId === songId) {
-            setSelectedSongId(next[0]?.id || '');
+            const nextInCategory = next.filter((s) => getSongCategory(s) === deletedCategory);
+            setSelectedSongId(nextInCategory[0]?.id || '');
             setSelectedSongSlideIdx(0);
           }
           return next;
@@ -1350,16 +1390,15 @@ function ControlPanel() {
       : 'bg-red-600 hover:bg-red-500 text-white';
 
   const filteredSongsForSidebar = useMemo(() => {
-    const sorted = sortSongsAlphabetically(songs);
     const q = songSidebarSearch.trim().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter(
+    if (!q) return categorySongs;
+    return categorySongs.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
         (s.artist || '').toLowerCase().includes(q) ||
         s.sections.some((sec) => sec.lyrics.some((l) => l.toLowerCase().includes(q)))
     );
-  }, [songs, songSidebarSearch]);
+  }, [categorySongs, songSidebarSearch]);
 
   const obsDisplayUrl =
     typeof window !== 'undefined' ? `${window.location.origin}/display?view=display` : '/display';
@@ -1541,20 +1580,61 @@ function ControlPanel() {
 
             {activeTab === 'songs' && (
               <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <div
+                  className="grid grid-cols-2 gap-1 p-1 rounded bg-[#11141a] border border-[#252a33] shrink-0"
+                  role="tablist"
+                  aria-label="Song collections"
+                >
+                  {(
+                    [
+                      { id: 'general', label: 'General', count: generalSongs.length },
+                      { id: 'demos', label: 'Demos', count: demosSongs.length },
+                    ] as const
+                  ).map((item) => {
+                    const isActive = songCategory === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        onClick={() => handleChangeSongCategory(item.id)}
+                        className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-semibold transition-colors ${
+                          isActive
+                            ? item.id === 'demos'
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-blue-600 text-white'
+                            : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                        <span
+                          className={`text-[11px] font-mono-tabular ${
+                            isActive ? 'text-white/85' : 'text-slate-500'
+                          }`}
+                        >
+                          {item.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="relative shrink-0">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={songSidebarSearch}
                     onChange={(e) => setSongSidebarSearch(e.target.value)}
-                    placeholder="Filter songs..."
+                    placeholder={`Filter ${songCategory === 'demos' ? 'Demos' : 'General'} songs...`}
                     className="w-full rounded bg-[#11141a] border border-[#2c323d] pl-8 pr-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div className="flex-1 overflow-y-auto divide-y divide-[#252a33] rounded bg-[#11141a] border border-[#252a33]">
                   {filteredSongsForSidebar.length === 0 ? (
                     <div className="p-3 text-xs text-slate-500 text-center">
-                      No songs found.
+                      {songSidebarSearch.trim()
+                        ? `No matching songs in ${songCategory === 'demos' ? 'Demos' : 'General'}.`
+                        : `No songs in ${songCategory === 'demos' ? 'Demos' : 'General'}.`}
                     </div>
                   ) : (
                     filteredSongsForSidebar.map((song) => {
@@ -1642,7 +1722,10 @@ function ControlPanel() {
 
               {activeTab === 'songs' && (
                 <SongsWorkspace
-                  songs={songs}
+                  songs={categorySongs}
+                  totalSongCount={songs.length}
+                  songCategory={songCategory}
+                  onChangeSongCategory={handleChangeSongCategory}
                   selectedSongId={selectedSongId}
                   selectedSlideIndex={selectedSongSlideIdx}
                   onSelectSong={(id) => {

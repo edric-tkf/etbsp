@@ -1,5 +1,7 @@
 export type MainTab = 'bible' | 'songs';
 
+export type SongCategory = 'general' | 'demos';
+
 export type BibleDisplayMode = 'fullscreen' | 'lower-third';
 
 export type LowerThirdPosition = 'top' | 'bottom';

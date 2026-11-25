@@ -13,7 +13,9 @@ import {
 } from '../utils/bibleEngine';
 import {
   computeSongSlides,
+  getSongCategory,
   parseSongTXT,
+  partitionSongsByCategory,
   songToRawText,
   sortSongsAlphabetically,
 } from '../utils/songEngine';
@@ -755,3 +757,78 @@ describe('ET OAuth Allowlist & Songbook Two-Way Merge', () => {
     ]);
   });
 });
+
+describe('Songs General vs Demos Split', () => {
+  it('places songs in Demos when artist or author is Demos, Planetshakers, or planetboom and General otherwise', () => {
+    const sGeneral = parseSongTXT('[Chorus]\nAmazing grace', {
+      id: 'g-1',
+      title: 'Amazing Grace',
+      artist: 'Elevation Worship, Brandon Lake',
+    }).song;
+
+    const sNoAuthor = parseSongTXT('[Chorus]\nPraise Him', {
+      id: 'g-2',
+      title: 'Praise Him',
+      artist: '',
+    }).song;
+
+    const sDemos = parseSongTXT('[Chorus]\nDemo chorus', {
+      id: 'd-1',
+      title: 'New Sound',
+      artist: 'Demos',
+    }).song;
+
+    const sPlanetshakers = parseSongTXT('[Chorus]\nEndless praise', {
+      id: 'd-2',
+      title: 'Endless Praise',
+      artist: 'Planetshakers',
+    }).song;
+
+    const sPlanetboom = parseSongTXT('[Chorus]\nRun to You', {
+      id: 'd-3',
+      title: 'Run To You',
+      artist: 'planetboom',
+    }).song;
+
+    const sMultiWithPlanetshakers = parseSongTXT('[Chorus]\nTurn it up', {
+      id: 'd-4',
+      title: 'Turn It Up',
+      artist: 'Someone Else, Planetshakers',
+    }).song;
+
+    const sAuthorField = parseSongTXT('[Chorus]\nLegacy demo', {
+      id: 'd-5',
+      title: 'Legacy Demo',
+      artist: '',
+      author: 'PlanetBoom',
+    }).song;
+
+    expect(getSongCategory(sGeneral)).toBe('general');
+    expect(getSongCategory(sNoAuthor)).toBe('general');
+    expect(getSongCategory(sDemos)).toBe('demos');
+    expect(getSongCategory(sPlanetshakers)).toBe('demos');
+    expect(getSongCategory(sPlanetboom)).toBe('demos');
+    expect(getSongCategory(sMultiWithPlanetshakers)).toBe('demos');
+    expect(getSongCategory(sAuthorField)).toBe('demos');
+
+    const { general, demos } = partitionSongsByCategory([
+      sPlanetshakers,
+      sGeneral,
+      sDemos,
+      sNoAuthor,
+      sPlanetboom,
+      sMultiWithPlanetshakers,
+      sAuthorField,
+    ]);
+
+    expect(general.map((s) => s.title)).toEqual(['Amazing Grace', 'Praise Him']);
+    expect(demos.map((s) => s.title)).toEqual([
+      'Endless Praise',
+      'Legacy Demo',
+      'New Sound',
+      'Run To You',
+      'Turn It Up',
+    ]);
+  });
+});
+

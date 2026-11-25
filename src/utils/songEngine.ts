@@ -1,6 +1,45 @@
-import type { Song, SongSection, SongSectionType, SongSlide } from '../types/models';
+import type { Song, SongCategory, SongSection, SongSectionType, SongSlide } from '../types/models';
 
 export const MAX_LINES_PER_SONG_SLIDE = 2;
+
+export const DEMO_SONG_AUTHORS = ['demos', 'planetshakers', 'planetboom'] as const;
+const DEMO_SONG_AUTHOR_SET = new Set<string>(DEMO_SONG_AUTHORS);
+
+/**
+ * Classifies a song into "demos" when its artist/author (or any comma-separated
+ * collaborator) is "Demos", "Planetshakers", or "planetboom" (case-insensitive).
+ * All other songs belong to "general".
+ */
+export function getSongCategory(song: Pick<Song, 'artist' | 'author'>): SongCategory {
+  const candidates = [song.artist, song.author]
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .flatMap((v) => v.split(','))
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const token of candidates) {
+    if (DEMO_SONG_AUTHOR_SET.has(token)) {
+      return 'demos';
+    }
+  }
+  return 'general';
+}
+
+export function partitionSongsByCategory(songs: Song[]): {
+  general: Song[];
+  demos: Song[];
+} {
+  const general: Song[] = [];
+  const demos: Song[] = [];
+  for (const song of sortSongsAlphabetically(songs)) {
+    if (getSongCategory(song) === 'demos') {
+      demos.push(song);
+    } else {
+      general.push(song);
+    }
+  }
+  return { general, demos };
+}
 
 const BRACKET_HEADING_REGEX = /^\[([^\]]+)\]\s*:?\s*$/;
 const SECTION_HEADING_REGEX =
