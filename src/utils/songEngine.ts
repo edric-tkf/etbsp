@@ -273,6 +273,8 @@ export function parseLegacyBackupSong(raw: any): Song | null {
         author: typeof raw.author === 'string' ? raw.author : undefined,
         language: typeof raw.language === 'string' ? raw.language : 'English',
         rawText: typeof raw.rawText === 'string' ? raw.rawText : undefined,
+        songbookDocId: typeof raw.songbookDocId === 'string' ? raw.songbookDocId : undefined,
+        lastSyncedHash: typeof raw.lastSyncedHash === 'string' ? raw.lastSyncedHash : undefined,
         sections,
         createdAt,
         updatedAt,
@@ -300,7 +302,11 @@ export function parseLegacyBackupSong(raw: any): Song | null {
   });
 
   if (parsed.song.sections.length === 0) return null;
-  return parsed.song;
+  return {
+    ...parsed.song,
+    songbookDocId: typeof raw.songbookDocId === 'string' ? raw.songbookDocId : undefined,
+    lastSyncedHash: typeof raw.lastSyncedHash === 'string' ? raw.lastSyncedHash : undefined,
+  };
 }
 
 export function formatTimestamp(seconds?: number): string {

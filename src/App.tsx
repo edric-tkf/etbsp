@@ -31,6 +31,8 @@ import type {
   MainTab,
   PresentationState,
   Song,
+  SongbookDocument,
+  SongMergeConflict,
   SyncConnectionState,
   ThemeSettings,
   ToastMessage,
@@ -64,6 +66,21 @@ import {
   saveUserPreferences,
 } from './utils/storage';
 import { PresentationSyncClient } from './utils/syncEngine';
+import { useEtOAuth } from './hooks/useEtOAuth';
+import {
+  computeSongContentHash,
+  createSongbookDoc,
+  deleteSongbookDoc,
+  fetchAllSongbookDocs,
+  normalizeLyricsForComparison,
+  normalizeSongTitleKey,
+  parseSongbookDocToSong,
+  reconcileSongbookMerge,
+  songToSongbookPayload,
+  subscribeToSongbookCollection,
+  upsertSongbookDoc,
+  type SongbookDocPayload,
+} from './utils/songbookSync';
 import { PresentationCanvas } from './components/PresentationCanvas';
 import { DisplayPage } from './components/DisplayPage';
 import { BibleWorkspace } from './components/BibleWorkspace';
@@ -71,6 +88,8 @@ import { SongsWorkspace } from './components/SongsWorkspace';
 import { BibleImportModal } from './components/BibleImportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { EtOAuthModal } from './components/EtOAuthModal';
+import { SongbookConflictModal, type ConflictChoice } from './components/SongbookConflictModal';
 
 function isDisplayRoute(): boolean {
   if (typeof window === 'undefined') return false;
@@ -117,6 +136,18 @@ function ControlPanel() {
   // Modals & UI panels
   const [bibleImportOpen, setBibleImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [oauthModalOpen, setOauthModalOpen] = useState(false);
+  const [isSongbookSyncing, setIsSongbookSyncing] = useState(false);
+  const [pendingSongbookMerge, setPendingSongbookMerge] = useState<{
+    enableAutoMergeAfter: boolean;
+    baseLocalSongs: Song[];
+    toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }>;
+    toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }>;
+    conflicts: SongMergeConflict[];
+    currentIndex: number;
+    resolutions: Array<{ conflict: SongMergeConflict; choice: ConflictChoice }>;
+  } | null>(null);
+
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -124,6 +155,15 @@ function ControlPanel() {
     confirmLabel: string;
     onConfirm: () => void;
   } | null>(null);
+
+  const {
+    user: oauthUser,
+    isAuthorized: isOAuthAuthorized,
+    isAuthenticating: isOAuthAuthenticating,
+    authError: oauthAuthError,
+    signInWithEtOAuth,
+    logoutEtOAuth,
+  } = useEtOAuth();
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncConnectionState>({
@@ -137,12 +177,19 @@ function ControlPanel() {
   const presentationRef = useRef(presentation);
   const displaySettingsRef = useRef(displaySettings);
   const customFontsRef = useRef(customFonts);
+  const songsRef = useRef(songs);
+  const preferencesRef = useRef(preferences);
+  const pendingRemoteCreateEchoesRef = useRef<Set<string>>(new Set());
+  const pendingRemoteUpdateEchoesRef = useRef<Map<string, string>>(new Map());
+  const pendingRemoteDeleteEchoesRef = useRef<Set<string>>(new Set());
   const bibleSearchRef = useRef<HTMLInputElement | null>(null);
   const isResizingSidebar = useRef(false);
 
   presentationRef.current = presentation;
   displaySettingsRef.current = displaySettings;
   customFontsRef.current = customFonts;
+  songsRef.current = songs;
+  preferencesRef.current = preferences;
 
   const pushToast = useCallback(
     (type: ToastMessage['type'], title: string, description?: string) => {
@@ -251,6 +298,16 @@ function ControlPanel() {
       return next;
     });
   }, []);
+
+  // Sync Control Panel UI font size & list row height CSS variables (isolated from /display route)
+  useEffect(() => {
+    const uiFontPx = Math.max(11, Math.min(22, preferences.uiFontSizePx ?? 14.5));
+    const rowHeightPx = Math.max(32, Math.min(110, preferences.uiRowHeightPx ?? 54));
+    const root = document.documentElement;
+    root.style.fontSize = `${uiFontPx}px`;
+    root.style.setProperty('--bsp-ui-font-px', `${uiFontPx}px`);
+    root.style.setProperty('--bsp-row-height-px', `${rowHeightPx}px`);
+  }, [preferences.uiFontSizePx, preferences.uiRowHeightPx]);
 
   // Sidebar resize drag handlers
   useEffect(() => {
@@ -580,6 +637,9 @@ function ControlPanel() {
   };
 
   const handleCreateSong = (song: Song) => {
+    const payload = songToSongbookPayload(song);
+    const contentHash = computeSongContentHash(payload.title, payload.artists, payload.lyrics);
+
     setSongs((prev) => {
       const next = sortSongsAlphabetically([song, ...prev]);
       saveSongs(next);
@@ -589,15 +649,77 @@ function ControlPanel() {
     setSelectedSongSlideIdx(0);
     setActiveTab('songs');
     pushToast('success', 'Song Saved', `"${song.title}" added to Songs.`);
+
+    if (preferencesRef.current.songbookAutoMerge && isOAuthAuthorized) {
+      createSongbookDoc(payload)
+        .then((newDocId) => {
+          pendingRemoteCreateEchoesRef.current.add(newDocId);
+          pendingRemoteUpdateEchoesRef.current.set(newDocId, contentHash);
+          setSongs((prev) => {
+            const next = sortSongsAlphabetically(
+              prev.map((s) =>
+                s.id === song.id
+                  ? { ...s, songbookDocId: newDocId, lastSyncedHash: contentHash }
+                  : s
+              )
+            );
+            saveSongs(next);
+            return next;
+          });
+        })
+        .catch((err) => {
+          console.error('Failed to push new song to Songbook:', err);
+          pushToast('warning', 'Songbook Sync Warning', 'Saved locally, but could not push to Songbook.');
+        });
+    }
   };
 
   const handleUpdateSong = (updated: Song) => {
+    const payload = songToSongbookPayload(updated);
+    const contentHash = computeSongContentHash(payload.title, payload.artists, payload.lyrics);
+    const enrichedLocal: Song =
+      preferencesRef.current.songbookAutoMerge && isOAuthAuthorized
+        ? { ...updated, lastSyncedHash: contentHash }
+        : updated;
+
     setSongs((prev) => {
-      const next = sortSongsAlphabetically(prev.map((s) => (s.id === updated.id ? updated : s)));
+      const next = sortSongsAlphabetically(
+        prev.map((s) => (s.id === updated.id ? enrichedLocal : s))
+      );
       saveSongs(next);
       return next;
     });
     pushToast('success', 'Song Updated', `"${updated.title}" saved.`);
+
+    if (preferencesRef.current.songbookAutoMerge && isOAuthAuthorized) {
+      if (updated.songbookDocId) {
+        pendingRemoteUpdateEchoesRef.current.set(updated.songbookDocId, contentHash);
+        upsertSongbookDoc(updated.songbookDocId, payload).catch((err) => {
+          console.error('Failed to update Songbook doc:', err);
+          pushToast('warning', 'Songbook Sync Warning', 'Saved locally, but could not update Songbook.');
+        });
+      } else {
+        createSongbookDoc(payload)
+          .then((newDocId) => {
+            pendingRemoteCreateEchoesRef.current.add(newDocId);
+            pendingRemoteUpdateEchoesRef.current.set(newDocId, contentHash);
+            setSongs((prev) => {
+              const next = sortSongsAlphabetically(
+                prev.map((s) =>
+                  s.id === updated.id
+                    ? { ...s, songbookDocId: newDocId, lastSyncedHash: contentHash }
+                    : s
+                )
+              );
+              saveSongs(next);
+              return next;
+            });
+          })
+          .catch((err) => {
+            console.error('Failed to create Songbook doc on edit:', err);
+          });
+      }
+    }
   };
 
   const handleDeleteSong = (songId: string) => {
@@ -620,9 +742,430 @@ function ControlPanel() {
         });
         setConfirmState(null);
         pushToast('info', 'Song Deleted', `"${target.title}" removed.`);
+
+        if (
+          preferencesRef.current.songbookAutoMerge &&
+          isOAuthAuthorized &&
+          target.songbookDocId
+        ) {
+          pendingRemoteDeleteEchoesRef.current.add(target.songbookDocId);
+          deleteSongbookDoc(target.songbookDocId).catch((err) => {
+            console.error('Failed to delete Songbook doc:', err);
+            pushToast('warning', 'Songbook Sync Warning', 'Deleted locally, but failed to delete in Songbook.');
+          });
+        }
       },
     });
   };
+
+  // Surface ET OAuth callback errors cleanly
+  useEffect(() => {
+    if (oauthAuthError) {
+      setActiveTab('songs');
+      setOauthModalOpen(true);
+    }
+  }, [oauthAuthError]);
+
+  const applyCommittedSongbookMerge = useCallback(
+    async (params: {
+      enableAutoMergeAfter: boolean;
+      baseLocalSongs: Song[];
+      toCreateInRemote: Array<{ localSongId: string; payload: SongbookDocPayload }>;
+      toUpdateInRemote: Array<{ docId: string; payload: SongbookDocPayload }>;
+      resolutions: Array<{ conflict: SongMergeConflict; choice: ConflictChoice }>;
+    }) => {
+      setIsSongbookSyncing(true);
+      try {
+        let workingSongs = [...params.baseLocalSongs];
+        const updatesToPush = [...params.toUpdateInRemote];
+
+        // 1. Apply conflict resolutions
+        for (const { conflict, choice } of params.resolutions) {
+          if (choice === 'local') {
+            const payload = songToSongbookPayload(conflict.localSong);
+            const hash = computeSongContentHash(payload.title, payload.artists, payload.lyrics);
+            workingSongs = workingSongs.map((s) =>
+              s.id === conflict.localSong.id
+                ? { ...s, songbookDocId: conflict.remoteDoc.id, lastSyncedHash: hash }
+                : s
+            );
+            updatesToPush.push({ docId: conflict.remoteDoc.id, payload });
+          } else {
+            const replacement = parseSongbookDocToSong(conflict.remoteDoc, conflict.localSong);
+            workingSongs = workingSongs.map((s) =>
+              s.id === conflict.localSong.id ? replacement : s
+            );
+          }
+        }
+
+        // 2. Push remote updates (title/artists/lyrics only, preserving other Firestore fields)
+        await Promise.all(
+          updatesToPush.map(async (item) => {
+            const hash = computeSongContentHash(
+              item.payload.title,
+              item.payload.artists,
+              item.payload.lyrics
+            );
+            pendingRemoteUpdateEchoesRef.current.set(item.docId, hash);
+            await upsertSongbookDoc(item.docId, item.payload);
+          })
+        );
+
+        // 3. Create missing local-only songs in Firestore and link their new doc IDs
+        const createdLinks = new Map<string, { docId: string; hash: string }>();
+        await Promise.all(
+          params.toCreateInRemote.map(async (item) => {
+            const hash = computeSongContentHash(
+              item.payload.title,
+              item.payload.artists,
+              item.payload.lyrics
+            );
+            const newDocId = await createSongbookDoc(item.payload);
+            pendingRemoteCreateEchoesRef.current.add(newDocId);
+            pendingRemoteUpdateEchoesRef.current.set(newDocId, hash);
+            createdLinks.set(item.localSongId, { docId: newDocId, hash });
+          })
+        );
+
+        const finalSongs = sortSongsAlphabetically(
+          workingSongs.map((s) => {
+            const link = createdLinks.get(s.id);
+            if (!link) return s;
+            return { ...s, songbookDocId: link.docId, lastSyncedHash: link.hash };
+          })
+        );
+
+        setSongs(finalSongs);
+        await saveSongs(finalSongs);
+
+        if (finalSongs[0]) {
+          setSelectedSongId((prev) =>
+            prev && finalSongs.some((s) => s.id === prev) ? prev : finalSongs[0].id
+          );
+        }
+
+        if (params.enableAutoMergeAfter && !preferencesRef.current.songbookAutoMerge) {
+          updatePreferences({ songbookAutoMerge: true });
+        }
+
+        pushToast(
+          'success',
+          'Songbook Synced',
+          `${finalSongs.length} songs matched across ET BSP and Songbook.${
+            params.enableAutoMergeAfter ? ' Auto Merge is now active.' : ''
+          }`
+        );
+      } catch (err: any) {
+        console.error('Failed to commit Songbook merge:', err);
+        pushToast(
+          'error',
+          'Songbook Merge Failed',
+          err?.message || 'Unable to sync with pnw-lyrics in Firebase.'
+        );
+      } finally {
+        setIsSongbookSyncing(false);
+        setPendingSongbookMerge(null);
+      }
+    },
+    [pushToast, updatePreferences]
+  );
+
+  const runManualMergeWithSongbook = useCallback(async () => {
+    setIsSongbookSyncing(true);
+    try {
+      const remoteDocs = await fetchAllSongbookDocs();
+      const result = reconcileSongbookMerge(songsRef.current, remoteDocs, {
+        mode: 'manual-merge',
+      });
+
+      if (result.conflicts.length > 0) {
+        setIsSongbookSyncing(false);
+        setPendingSongbookMerge({
+          enableAutoMergeAfter: true,
+          baseLocalSongs: result.mergedLocalSongs,
+          toCreateInRemote: result.toCreateInRemote,
+          toUpdateInRemote: result.toUpdateInRemote,
+          conflicts: result.conflicts,
+          currentIndex: 0,
+          resolutions: [],
+        });
+        return;
+      }
+
+      await applyCommittedSongbookMerge({
+        enableAutoMergeAfter: true,
+        baseLocalSongs: result.mergedLocalSongs,
+        toCreateInRemote: result.toCreateInRemote,
+        toUpdateInRemote: result.toUpdateInRemote,
+        resolutions: [],
+      });
+    } catch (err: any) {
+      console.error('Songbook merge failed:', err);
+      setIsSongbookSyncing(false);
+      pushToast(
+        'error',
+        'Songbook Merge Failed',
+        err?.message || 'Could not reach Firebase pnw-lyrics collection.'
+      );
+    }
+  }, [applyCommittedSongbookMerge, pushToast]);
+
+  const handleSongbookSyncButtonClick = useCallback(() => {
+    if (preferencesRef.current.songbookAutoMerge && isOAuthAuthorized) {
+      setConfirmState({
+        open: true,
+        title: 'Disable Auto Merge',
+        message:
+          'Disable Auto Merge with Songbook? ET BSP will stop automatically cross-syncing with pnw-lyrics, and the button will switch back to "Merge with Songbook".',
+        confirmLabel: 'Disable Auto Merge',
+        onConfirm: () => {
+          updatePreferences({ songbookAutoMerge: false });
+          setConfirmState(null);
+          pushToast('info', 'Auto Merge Disabled', 'Automatic Songbook cross-sync paused.');
+        },
+      });
+      return;
+    }
+
+    if (!isOAuthAuthorized) {
+      setOauthModalOpen(true);
+      return;
+    }
+
+    setConfirmState({
+      open: true,
+      title: 'Merge with Songbook',
+      message:
+        'Warning: This will merge and cross-sync all songs between ET BSP and Songbook (pnw-lyrics). Songs with the exact same name and lyrics will merge immediately; any song with different lyrics will ask you which version to keep. Missing songs will be added to both apps.',
+      confirmLabel: 'Confirm & Merge',
+      onConfirm: () => {
+        setConfirmState(null);
+        void runManualMergeWithSongbook();
+      },
+    });
+  }, [isOAuthAuthorized, pushToast, runManualMergeWithSongbook, updatePreferences]);
+
+  const handleResolveCurrentConflict = (choice: ConflictChoice) => {
+    if (!pendingSongbookMerge) return;
+    const currentConflict = pendingSongbookMerge.conflicts[pendingSongbookMerge.currentIndex];
+    if (!currentConflict) return;
+
+    const nextResolutions = [
+      ...pendingSongbookMerge.resolutions,
+      { conflict: currentConflict, choice },
+    ];
+    const nextIndex = pendingSongbookMerge.currentIndex + 1;
+
+    if (nextIndex < pendingSongbookMerge.conflicts.length) {
+      setPendingSongbookMerge({
+        ...pendingSongbookMerge,
+        currentIndex: nextIndex,
+        resolutions: nextResolutions,
+      });
+      return;
+    }
+
+    void applyCommittedSongbookMerge({
+      enableAutoMergeAfter: pendingSongbookMerge.enableAutoMergeAfter,
+      baseLocalSongs: pendingSongbookMerge.baseLocalSongs,
+      toCreateInRemote: pendingSongbookMerge.toCreateInRemote,
+      toUpdateInRemote: pendingSongbookMerge.toUpdateInRemote,
+      resolutions: nextResolutions,
+    });
+  };
+
+  const handleResolveAllRemainingConflicts = (choice: ConflictChoice) => {
+    if (!pendingSongbookMerge) return;
+    const remaining = pendingSongbookMerge.conflicts
+      .slice(pendingSongbookMerge.currentIndex)
+      .map((conflict) => ({ conflict, choice }));
+    const allResolutions = [...pendingSongbookMerge.resolutions, ...remaining];
+
+    void applyCommittedSongbookMerge({
+      enableAutoMergeAfter: pendingSongbookMerge.enableAutoMergeAfter,
+      baseLocalSongs: pendingSongbookMerge.baseLocalSongs,
+      toCreateInRemote: pendingSongbookMerge.toCreateInRemote,
+      toUpdateInRemote: pendingSongbookMerge.toUpdateInRemote,
+      resolutions: allResolutions,
+    });
+  };
+
+  // Real-time Auto Merge listener with Songbook (pnw-lyrics)
+  useEffect(() => {
+    if (!hydrated || !preferences.songbookAutoMerge || !isOAuthAuthorized) return;
+
+    const unsubscribe = subscribeToSongbookCollection({
+      onInitialSnapshot: (allDocs: SongbookDocument[]) => {
+        const result = reconcileSongbookMerge(songsRef.current, allDocs, {
+          mode: 'auto-sync',
+        });
+
+        if (result.conflicts.length > 0) {
+          setPendingSongbookMerge({
+            enableAutoMergeAfter: true,
+            baseLocalSongs: result.mergedLocalSongs,
+            toCreateInRemote: result.toCreateInRemote,
+            toUpdateInRemote: result.toUpdateInRemote,
+            conflicts: result.conflicts,
+            currentIndex: 0,
+            resolutions: [],
+          });
+          return;
+        }
+
+        const hasChanges =
+          result.toCreateInRemote.length > 0 ||
+          result.toUpdateInRemote.length > 0 ||
+          result.removedLocalIds.length > 0 ||
+          result.addedFromRemoteCount > 0 ||
+          result.mergedLocalSongs.length !== songsRef.current.length;
+
+        if (hasChanges) {
+          void applyCommittedSongbookMerge({
+            enableAutoMergeAfter: false,
+            baseLocalSongs: result.mergedLocalSongs,
+            toCreateInRemote: result.toCreateInRemote,
+            toUpdateInRemote: result.toUpdateInRemote,
+            resolutions: [],
+          });
+        }
+      },
+      onRemoteUpserts: (upserts: SongbookDocument[]) => {
+        const newConflicts: SongMergeConflict[] = [];
+        let working = [...songsRef.current];
+        let localChanged = false;
+
+        for (const docItem of upserts) {
+          const remoteHash = computeSongContentHash(
+            docItem.title,
+            docItem.artists,
+            docItem.lyrics
+          );
+
+          if (pendingRemoteCreateEchoesRef.current.has(docItem.id)) {
+            pendingRemoteCreateEchoesRef.current.delete(docItem.id);
+            if (pendingRemoteUpdateEchoesRef.current.get(docItem.id) === remoteHash) {
+              pendingRemoteUpdateEchoesRef.current.delete(docItem.id);
+              continue;
+            }
+          }
+
+          if (pendingRemoteUpdateEchoesRef.current.get(docItem.id) === remoteHash) {
+            pendingRemoteUpdateEchoesRef.current.delete(docItem.id);
+            continue;
+          }
+
+          const existingIdx = working.findIndex(
+            (s) =>
+              s.songbookDocId === docItem.id ||
+              (!s.songbookDocId &&
+                normalizeSongTitleKey(s.title) === normalizeSongTitleKey(docItem.title))
+          );
+
+          if (existingIdx === -1) {
+            working.push(parseSongbookDocToSong(docItem));
+            localChanged = true;
+            continue;
+          }
+
+          const existing = working[existingIdx];
+          const localPayload = songToSongbookPayload(existing);
+          const localHash = computeSongContentHash(
+            localPayload.title,
+            localPayload.artists,
+            localPayload.lyrics
+          );
+
+          if (
+            normalizeLyricsForComparison(localPayload.lyrics) ===
+              normalizeLyricsForComparison(docItem.lyrics) &&
+            localPayload.artists.trim() === docItem.artists.trim() &&
+            localPayload.title.trim() === docItem.title.trim()
+          ) {
+            if (existing.songbookDocId !== docItem.id || existing.lastSyncedHash !== remoteHash) {
+              working[existingIdx] = {
+                ...existing,
+                songbookDocId: docItem.id,
+                lastSyncedHash: remoteHash,
+              };
+              localChanged = true;
+            }
+            continue;
+          }
+
+          // If local was modified since last sync and differs from remote, ask user!
+          if (
+            existing.lastSyncedHash &&
+            localHash !== existing.lastSyncedHash &&
+            remoteHash !== existing.lastSyncedHash
+          ) {
+            newConflicts.push({
+              key: `${existing.id}__${docItem.id}`,
+              title: docItem.title.trim() || existing.title,
+              localSong: existing,
+              remoteDoc: docItem,
+            });
+            continue;
+          }
+
+          working[existingIdx] = parseSongbookDocToSong(docItem, existing);
+          localChanged = true;
+        }
+
+        if (localChanged) {
+          const sorted = sortSongsAlphabetically(working);
+          setSongs(sorted);
+          void saveSongs(sorted);
+        }
+
+        if (newConflicts.length > 0) {
+          setPendingSongbookMerge({
+            enableAutoMergeAfter: false,
+            baseLocalSongs: localChanged ? sortSongsAlphabetically(working) : songsRef.current,
+            toCreateInRemote: [],
+            toUpdateInRemote: [],
+            conflicts: newConflicts,
+            currentIndex: 0,
+            resolutions: [],
+          });
+        }
+      },
+      onRemoteRemovals: (docIds: string[]) => {
+        const externalRemovals = docIds.filter((id) => {
+          if (pendingRemoteDeleteEchoesRef.current.has(id)) {
+            pendingRemoteDeleteEchoesRef.current.delete(id);
+            return false;
+          }
+          return true;
+        });
+        if (externalRemovals.length === 0) return;
+
+        const removalSet = new Set(externalRemovals);
+        const filtered = sortSongsAlphabetically(
+          songsRef.current.filter((s) => !s.songbookDocId || !removalSet.has(s.songbookDocId))
+        );
+        if (filtered.length !== songsRef.current.length) {
+          setSongs(filtered);
+          void saveSongs(filtered);
+          setSelectedSongId((prev) =>
+            prev && filtered.some((s) => s.id === prev) ? prev : filtered[0]?.id || ''
+          );
+        }
+      },
+      onError: (err) => {
+        console.error('Songbook auto-merge listener error:', err);
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    applyCommittedSongbookMerge,
+    hydrated,
+    isOAuthAuthorized,
+    preferences.songbookAutoMerge,
+  ]);
 
   const handleAddCustomFont = (font: CustomFont) => {
     setCustomFonts((prev) => {
@@ -902,14 +1445,18 @@ function ControlPanel() {
                             setSelectedChapter(b.chapters[0]?.number || 1);
                             setSelectedVerse(b.chapters[0]?.verses[0]?.number || 1);
                           }}
-                          className={`w-full text-left px-3 py-2.5 text-[13px] transition-colors flex items-center justify-between ${
+                          style={{
+                            minHeight: 'calc(var(--bsp-row-height-px, 54px) * 0.78)',
+                            fontSize: 'calc(var(--bsp-ui-font-px, 14.5px) * 0.92)',
+                          }}
+                          className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between ${
                             active
                               ? 'bg-blue-600/20 text-white font-semibold'
                               : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
                           }`}
                         >
                           <span className="truncate">{b.name}</span>
-                          <span className="text-[11px] font-mono-tabular text-slate-500">
+                          <span className="text-xs font-mono-tabular text-slate-500">
                             {b.chapters.length}
                           </span>
                         </button>
@@ -948,13 +1495,21 @@ function ControlPanel() {
                             setSelectedSongId(song.id);
                             setSelectedSongSlideIdx(0);
                           }}
-                          className={`w-full text-left px-3 py-2.5 transition-colors flex items-center justify-between gap-2 ${
+                          style={{
+                            minHeight: 'calc(var(--bsp-row-height-px, 54px) * 0.78)',
+                          }}
+                          className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2 ${
                             active
                               ? 'bg-blue-600/20 text-white font-semibold'
                               : 'text-slate-300 hover:text-white hover:bg-[#20242c]'
                           }`}
                         >
-                          <span className="text-[13px] truncate">{song.title}</span>
+                          <span
+                            style={{ fontSize: 'calc(var(--bsp-ui-font-px, 14.5px) * 0.92)' }}
+                            className="truncate"
+                          >
+                            {song.title}
+                          </span>
                         </button>
                       );
                     })
@@ -1023,6 +1578,12 @@ function ControlPanel() {
                   onCreateSong={handleCreateSong}
                   onDeleteSong={handleDeleteSong}
                   presentation={presentation}
+                  oauthUser={oauthUser}
+                  isOAuthAuthorized={isOAuthAuthorized}
+                  songbookAutoMerge={preferences.songbookAutoMerge}
+                  isSongbookSyncing={isSongbookSyncing}
+                  onMergeWithSongbookClick={handleSongbookSyncButtonClick}
+                  onOpenOAuthModal={() => setOauthModalOpen(true)}
                 />
               )}
             </>
@@ -1322,7 +1883,50 @@ function ControlPanel() {
         onApplyBackup={handleApplyBackup}
         onRequestResetAllData={handleResetAllData}
         onCopyUrl={copyText}
+        oauthUser={oauthUser}
+        isOAuthAuthorized={isOAuthAuthorized}
+        onOpenOAuthModal={() => setOauthModalOpen(true)}
+        onLogoutOAuth={() => {
+          logoutEtOAuth();
+          if (preferences.songbookAutoMerge) {
+            updatePreferences({ songbookAutoMerge: false });
+          }
+          pushToast('info', 'Signed Out', 'ET OAuth session cleared.');
+        }}
+        onSongbookSyncButtonClick={handleSongbookSyncButtonClick}
       />
+
+      <EtOAuthModal
+        isOpen={oauthModalOpen}
+        user={oauthUser}
+        isAuthorized={isOAuthAuthorized}
+        isAuthenticating={isOAuthAuthenticating}
+        authError={oauthAuthError}
+        onSignIn={signInWithEtOAuth}
+        onSignOut={() => {
+          logoutEtOAuth();
+          if (preferences.songbookAutoMerge) {
+            updatePreferences({ songbookAutoMerge: false });
+          }
+          pushToast('info', 'Signed Out', 'ET OAuth session cleared.');
+        }}
+        onClose={() => setOauthModalOpen(false)}
+      />
+
+      {pendingSongbookMerge && (
+        <SongbookConflictModal
+          conflicts={pendingSongbookMerge.conflicts}
+          currentIndex={pendingSongbookMerge.currentIndex}
+          isSubmitting={isSongbookSyncing}
+          onChooseCurrent={handleResolveCurrentConflict}
+          onChooseAllRemaining={handleResolveAllRemainingConflicts}
+          onCancel={() => {
+            setPendingSongbookMerge(null);
+            setIsSongbookSyncing(false);
+            pushToast('info', 'Merge Cancelled', 'No conflicting changes were overwritten.');
+          }}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={Boolean(confirmState?.open)}

@@ -1,6 +1,17 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Edit3, Keyboard, Music2, Plus, Save, Trash2 } from 'lucide-react';
-import type { PresentationState, Song } from '../types/models';
+import {
+  Cloud,
+  Edit3,
+  GitMerge,
+  Keyboard,
+  Loader2,
+  Music2,
+  Plus,
+  Save,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
+import type { EtOAuthUser, PresentationState, Song } from '../types/models';
 import { computeSongSlides, parseSongTXT, songToRawText } from '../utils/songEngine';
 import { OnScreenKeyboard, type OnScreenKeyAction } from './OnScreenKeyboard';
 
@@ -15,6 +26,12 @@ interface SongsWorkspaceProps {
   onCreateSong: (song: Song) => void;
   onDeleteSong: (songId: string) => void;
   presentation: PresentationState;
+  oauthUser: EtOAuthUser | null;
+  isOAuthAuthorized: boolean;
+  songbookAutoMerge: boolean;
+  isSongbookSyncing: boolean;
+  onMergeWithSongbookClick: () => void;
+  onOpenOAuthModal: () => void;
 }
 
 const LYRICS_PLACEHOLDER = `[Verse 1]
@@ -37,15 +54,23 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   onCreateSong,
   onDeleteSong,
   presentation,
+  oauthUser,
+  isOAuthAuthorized,
+  songbookAutoMerge,
+  isSongbookSyncing,
+  onMergeWithSongbookClick,
+  onOpenOAuthModal,
 }) => {
   const [editorMode, setEditorMode] = useState<'none' | 'create' | 'edit'>('none');
   const [draftTitle, setDraftTitle] = useState('');
+  const [draftArtist, setDraftArtist] = useState('');
   const [draftLyricsText, setDraftLyricsText] = useState('');
   const [draftError, setDraftError] = useState<string | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [activeField, setActiveField] = useState<'title' | 'lyrics'>('lyrics');
+  const [activeField, setActiveField] = useState<'title' | 'artist' | 'lyrics'>('lyrics');
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const artistInputRef = useRef<HTMLInputElement | null>(null);
   const lyricsTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeSong = useMemo(
@@ -57,11 +82,15 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
 
   const draftPreview = useMemo(() => {
     if (editorMode === 'none' || !draftLyricsText.trim()) return null;
-    return parseSongTXT(draftLyricsText, { title: draftTitle || 'Untitled Song' });
-  }, [editorMode, draftLyricsText, draftTitle]);
+    return parseSongTXT(draftLyricsText, {
+      title: draftTitle || 'Untitled Song',
+      artist: draftArtist,
+    });
+  }, [editorMode, draftLyricsText, draftTitle, draftArtist]);
 
   const startCreating = () => {
     setDraftTitle('');
+    setDraftArtist('');
     setDraftLyricsText('');
     setDraftError(null);
     setActiveField('title');
@@ -71,6 +100,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   const startEditing = () => {
     if (!activeSong) return;
     setDraftTitle(activeSong.title);
+    setDraftArtist(activeSong.artist || '');
     setDraftLyricsText(songToRawText(activeSong));
     setDraftError(null);
     setActiveField('lyrics');
@@ -87,6 +117,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
     const parsed = parseSongTXT(draftLyricsText, {
       id: editorMode === 'edit' && activeSong ? activeSong.id : undefined,
       title: trimmedTitle,
+      artist: draftArtist.trim(),
       createdAt: editorMode === 'edit' && activeSong ? activeSong.createdAt : undefined,
     });
 
@@ -95,11 +126,20 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
       return;
     }
 
+    const finalSong: Song =
+      editorMode === 'edit' && activeSong
+        ? {
+            ...parsed.song,
+            songbookDocId: activeSong.songbookDocId,
+            lastSyncedHash: activeSong.lastSyncedHash,
+          }
+        : parsed.song;
+
     if (editorMode === 'create') {
-      onCreateSong(parsed.song);
-      onSelectSong(parsed.song.id);
+      onCreateSong(finalSong);
+      onSelectSong(finalSong.id);
     } else if (editorMode === 'edit' && activeSong) {
-      onUpdateSong(parsed.song);
+      onUpdateSong(finalSong);
     }
 
     setEditorMode('none');
@@ -108,9 +148,24 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
   };
 
   const applyOnScreenKey = (action: OnScreenKeyAction) => {
-    const el = activeField === 'title' ? titleInputRef.current : lyricsTextareaRef.current;
-    const currentValue = activeField === 'title' ? draftTitle : draftLyricsText;
-    const setValue = activeField === 'title' ? setDraftTitle : setDraftLyricsText;
+    const el =
+      activeField === 'title'
+        ? titleInputRef.current
+        : activeField === 'artist'
+        ? artistInputRef.current
+        : lyricsTextareaRef.current;
+    const currentValue =
+      activeField === 'title'
+        ? draftTitle
+        : activeField === 'artist'
+        ? draftArtist
+        : draftLyricsText;
+    const setValue =
+      activeField === 'title'
+        ? setDraftTitle
+        : activeField === 'artist'
+        ? setDraftArtist
+        : setDraftLyricsText;
 
     const start = el?.selectionStart ?? currentValue.length;
     const end = el?.selectionEnd ?? currentValue.length;
@@ -172,7 +227,14 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
     }
 
     if (action.type === 'enter' && activeField === 'title') {
-      // Pressing Enter while editing title jumps into lyrics textarea
+      setActiveField('artist');
+      window.requestAnimationFrame(() => {
+        artistInputRef.current?.focus();
+      });
+      return;
+    }
+
+    if (action.type === 'enter' && activeField === 'artist') {
       setActiveField('lyrics');
       window.requestAnimationFrame(() => {
         lyricsTextareaRef.current?.focus();
@@ -210,7 +272,11 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
                 setKeyboardOpen((prev) => !prev);
                 window.requestAnimationFrame(() => {
                   const targetEl =
-                    activeField === 'title' ? titleInputRef.current : lyricsTextareaRef.current;
+                    activeField === 'title'
+                      ? titleInputRef.current
+                      : activeField === 'artist'
+                      ? artistInputRef.current
+                      : lyricsTextareaRef.current;
                   targetEl?.focus();
                 });
               }}
@@ -246,20 +312,40 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
         </div>
 
         <div className="flex-1 min-h-0 rounded-lg bg-[#171b22] border border-[#2c323d] p-3 flex flex-col gap-2.5 overflow-hidden">
-          <div className="shrink-0">
-            <label className="block text-xs font-medium text-slate-300 mb-1">Song Title</label>
-            <input
-              ref={titleInputRef}
-              type="text"
-              value={draftTitle}
-              onFocus={() => setActiveField('title')}
-              onChange={(e) => {
-                setDraftTitle(e.target.value);
-                setDraftError(null);
-              }}
-              placeholder="Enter song title..."
-              className="w-full rounded bg-[#11141a] border border-[#2c323d] px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 shrink-0">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Song Title</label>
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={draftTitle}
+                onFocus={() => setActiveField('title')}
+                onChange={(e) => {
+                  setDraftTitle(e.target.value);
+                  setDraftError(null);
+                }}
+                placeholder="Enter song title..."
+                className="w-full rounded bg-[#11141a] border border-[#2c323d] px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Artists (comma-separated)
+              </label>
+              <input
+                ref={artistInputRef}
+                type="text"
+                value={draftArtist}
+                onFocus={() => setActiveField('artist')}
+                onChange={(e) => {
+                  setDraftArtist(e.target.value);
+                  setDraftError(null);
+                }}
+                placeholder="e.g. Elevation Worship, Brandon Lake"
+                className="w-full rounded bg-[#11141a] border border-[#2c323d] px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 flex flex-col">
@@ -294,7 +380,13 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
 
           {keyboardOpen && (
             <OnScreenKeyboard
-              activeTargetLabel={activeField === 'title' ? 'Song Title' : 'Lyrics'}
+              activeTargetLabel={
+                activeField === 'title'
+                  ? 'Song Title'
+                  : activeField === 'artist'
+                  ? 'Artists'
+                  : 'Lyrics'
+              }
               onKeyAction={applyOnScreenKey}
               onClose={() => setKeyboardOpen(false)}
             />
@@ -304,22 +396,67 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
     );
   }
 
+  const autoMergeActive = songbookAutoMerge && isOAuthAuthorized;
+
+  const renderSongbookSyncButton = () => (
+    <button
+      type="button"
+      disabled={isSongbookSyncing}
+      onClick={onMergeWithSongbookClick}
+      title={
+        autoMergeActive
+          ? 'Auto Merge active — click to disable automatic cross-sync with Songbook'
+          : 'Merge & cross-sync songs with Songbook (pnw-lyrics)'
+      }
+      className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-60 ${
+        autoMergeActive
+          ? 'bg-emerald-600/20 hover:bg-emerald-600/30 border-emerald-500/60 text-emerald-200'
+          : 'bg-blue-600/20 hover:bg-blue-600/30 border-blue-500/50 text-blue-200'
+      }`}
+    >
+      {isSongbookSyncing ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : autoMergeActive ? (
+        <>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <Cloud className="w-3.5 h-3.5 text-emerald-300" />
+        </>
+      ) : (
+        <GitMerge className="w-3.5 h-3.5 text-blue-300" />
+      )}
+      <span>{autoMergeActive ? 'Auto Merge' : 'Merge with Songbook'}</span>
+    </button>
+  );
+
   if (!activeSong) {
     return (
       <div className="h-full rounded-lg bg-[#171b22] border border-[#2c323d] flex flex-col items-center justify-center p-6 text-center">
         <Music2 className="w-9 h-9 text-slate-500 mb-3" />
         <h3 className="text-sm font-semibold text-white">Your Song Library Is Empty</h3>
         <p className="text-xs text-slate-400 mt-1 max-w-sm">
-          Create a song with section tags like [Verse 1] and [Chorus], or restore a backup in Settings.
+          Create a song with section tags like [Verse 1] and [Chorus], merge with Songbook, or restore a backup in Settings.
         </p>
-        <button
-          type="button"
-          onClick={startCreating}
-          className="mt-4 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white flex items-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Song</span>
-        </button>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={startCreating}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Song</span>
+          </button>
+          {renderSongbookSyncButton()}
+          <button
+            type="button"
+            onClick={onOpenOAuthModal}
+            className="px-3 py-2 rounded-lg bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-200 flex items-center gap-1.5"
+          >
+            <ShieldCheck
+              className={`w-3.5 h-3.5 ${isOAuthAuthorized ? 'text-emerald-400' : 'text-slate-400'}`}
+            />
+            <span>{isOAuthAuthorized && oauthUser ? oauthUser.email : 'ET OAuth'}</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -329,13 +466,36 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
       {/* Header Toolbar */}
       <div className="rounded-lg bg-[#171b22] border border-[#2c323d] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-white truncate">{activeSong.title}</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-sm font-bold text-white truncate">{activeSong.title}</h2>
+            {activeSong.artist?.trim() && (
+              <span className="text-xs text-slate-400 truncate">· {activeSong.artist}</span>
+            )}
+          </div>
           <div className="text-xs text-slate-400">
             Click any lyric row to project · click again while live to hide
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {renderSongbookSyncButton()}
+          <button
+            type="button"
+            onClick={onOpenOAuthModal}
+            title={
+              isOAuthAuthorized && oauthUser
+                ? `Signed in as ${oauthUser.email}`
+                : 'Sign in with ET OAuth'
+            }
+            className="px-2.5 py-1.5 rounded bg-[#20242c] hover:bg-[#252a33] border border-[#2c323d] text-xs font-medium text-slate-300 flex items-center gap-1.5"
+          >
+            <ShieldCheck
+              className={`w-3.5 h-3.5 ${isOAuthAuthorized ? 'text-emerald-400' : 'text-slate-400'}`}
+            />
+            <span className="hidden xl:inline max-w-[140px] truncate">
+              {isOAuthAuthorized && oauthUser ? oauthUser.email : 'ET OAuth'}
+            </span>
+          </button>
           <button
             type="button"
             onClick={startCreating}
@@ -396,7 +556,7 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
                   }`}
                 >
                   <span className={`w-1.5 h-3.5 rounded-full shrink-0 ${barColorClass}`} />
-                  <span className={`text-[11px] font-bold uppercase tracking-wider shrink-0 ${labelColorClass}`}>
+                  <span className={`text-xs font-bold uppercase tracking-wider shrink-0 ${labelColorClass}`}>
                     {slide.sectionTitle}
                   </span>
                   <div className="flex-1 h-px bg-[#252a33]" />
@@ -413,7 +573,8 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
                   }
                 }}
                 title={isLiveSlide ? 'Click again to hide lyric' : 'Click to project lyric'}
-                className={`w-full text-left px-3.5 py-3.5 min-h-[54px] flex items-center justify-between gap-3 border-b border-[#252a33] last:border-b-0 transition-colors cursor-pointer ${
+                style={{ minHeight: 'var(--bsp-row-height-px, 54px)' }}
+                className={`w-full text-left px-3.5 py-3 flex items-center justify-between gap-3 border-b border-[#252a33] last:border-b-0 transition-colors cursor-pointer ${
                   isLiveSlide
                     ? 'bg-red-950/40 text-white border-l-2 border-l-red-500'
                     : isSelected
@@ -423,14 +584,18 @@ export const SongsWorkspace: React.FC<SongsWorkspaceProps> = ({
               >
                 <div className="flex-1 min-w-0 space-y-1">
                   {slide.lines.slice(0, 2).map((line, i) => (
-                    <div key={i} className="text-[13.5px] font-medium text-slate-100 leading-snug">
+                    <div
+                      key={i}
+                      style={{ fontSize: 'var(--bsp-ui-font-px, 14.5px)' }}
+                      className="font-medium text-slate-100 leading-snug"
+                    >
                       {line}
                     </div>
                   ))}
                 </div>
 
                 {isLiveSlide && (
-                  <span className="text-[11px] font-bold text-red-400 tracking-wide shrink-0">
+                  <span className="text-xs font-bold text-red-400 tracking-wide shrink-0">
                     LIVE
                   </span>
                 )}

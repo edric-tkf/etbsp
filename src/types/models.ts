@@ -77,8 +77,33 @@ export interface Song {
   copyright?: string;
   rawText?: string;
   sections: SongSection[];
+  songbookDocId?: string;
+  lastSyncedHash?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EtOAuthUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  token?: string;
+  [key: string]: unknown;
+}
+
+export interface SongbookDocument {
+  id: string;
+  title: string;
+  artists: string;
+  lyrics: string;
+}
+
+export interface SongMergeConflict {
+  key: string;
+  title: string;
+  localSong: Song;
+  remoteDoc: SongbookDocument;
 }
 
 export interface CustomFont {
@@ -187,9 +212,12 @@ export interface KeyboardShortcutMap {
 export interface UserPreferences {
   language: 'en' | 'es' | 'fr' | 'pt';
   sidebarWidth: number;
+  uiFontSizePx: number;
+  uiRowHeightPx: number;
   quickActionsOpen: boolean;
   defaultTranslationId: string;
   updateRepoUrl: string;
+  songbookAutoMerge: boolean;
   shortcuts: KeyboardShortcutMap;
 }
 

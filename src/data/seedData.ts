@@ -186,9 +186,12 @@ export const THEME_PRESETS: Array<{
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   language: 'en',
   sidebarWidth: 250,
+  uiFontSizePx: 14.5,
+  uiRowHeightPx: 54,
   quickActionsOpen: true,
   defaultTranslationId: '',
   updateRepoUrl: '',
+  songbookAutoMerge: false,
   shortcuts: {
     prevSlide: 'ArrowLeft',
     nextSlide: 'ArrowRight',

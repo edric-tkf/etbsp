@@ -2,13 +2,17 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  Cloud,
   Copy,
   Download,
   ExternalLink,
+  GitMerge,
+  LogOut,
   Monitor,
   Palette,
   RefreshCw,
   Settings as SettingsIcon,
+  ShieldCheck,
   Trash2,
   Type,
   Upload,
@@ -19,6 +23,7 @@ import type {
   BibleTranslation,
   CustomFont,
   DisplaySettings,
+  EtOAuthUser,
   Song,
   ThemeSettings,
   UserPreferences,
@@ -49,6 +54,11 @@ interface SettingsModalProps {
   onApplyBackup: (backup: BackupFile, mode: 'merge' | 'replace') => void;
   onRequestResetAllData: () => void;
   onCopyUrl: (url: string, label: string) => void;
+  oauthUser: EtOAuthUser | null;
+  isOAuthAuthorized: boolean;
+  onOpenOAuthModal: () => void;
+  onLogoutOAuth: () => void;
+  onSongbookSyncButtonClick: () => void;
 }
 
 type SettingsSection =
@@ -80,6 +90,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onApplyBackup,
   onRequestResetAllData,
   onCopyUrl,
+  oauthUser,
+  isOAuthAuthorized,
+  onOpenOAuthModal,
+  onLogoutOAuth,
+  onSongbookSyncButtonClick,
 }) => {
   const [section, setSection] = useState<SettingsSection>('general');
   const [singleExportType, setSingleExportType] = useState<'song' | 'translation'>('song');
@@ -397,6 +412,105 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
+                {/* Control Panel Appearance (UI Font Size & Row Height) */}
+                <div className="rounded-lg bg-[#20242c] border border-[#2c323d] p-3.5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-white">
+                        Control Panel Appearance
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Adjust control panel text size and Bible/Song list row heights (does not affect OBS output).
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdatePreferences({ uiFontSizePx: 14.5, uiRowHeightPx: 54 })
+                      }
+                      className="px-2.5 py-1 rounded bg-[#252a33] hover:bg-[#2f3642] border border-[#2c323d] text-[11px] text-slate-200 shrink-0"
+                    >
+                      Reset UI Size
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                        <span>Control Panel Font Size</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={11}
+                            max={22}
+                            step={0.5}
+                            aria-label="Control Panel Font Size (px)"
+                            value={preferences.uiFontSizePx ?? 14.5}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v)) {
+                                onUpdatePreferences({
+                                  uiFontSizePx: Math.max(11, Math.min(22, v)),
+                                });
+                              }
+                            }}
+                            className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                          />
+                          <span className="font-mono-tabular text-slate-400">px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={11}
+                        max={22}
+                        step={0.5}
+                        value={preferences.uiFontSizePx ?? 14.5}
+                        onChange={(e) =>
+                          onUpdatePreferences({ uiFontSizePx: Number(e.target.value) })
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1 gap-2">
+                        <span>List Row Height</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={32}
+                            max={110}
+                            step={2}
+                            aria-label="List Row Height (px)"
+                            value={preferences.uiRowHeightPx ?? 54}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v)) {
+                                onUpdatePreferences({
+                                  uiRowHeightPx: Math.max(32, Math.min(110, Math.round(v))),
+                                });
+                              }
+                            }}
+                            className="w-16 rounded bg-[#11141a] border border-[#2c323d] px-1.5 py-0.5 text-right text-[11px] font-mono-tabular text-white"
+                          />
+                          <span className="font-mono-tabular text-slate-400">px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={32}
+                        max={110}
+                        step={2}
+                        value={preferences.uiRowHeightPx ?? 54}
+                        onChange={(e) =>
+                          onUpdatePreferences({ uiRowHeightPx: Number(e.target.value) })
+                        }
+                        className="w-full accent-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Easy App Update Panel */}
                 <div className="rounded-lg bg-[#20242c] border border-[#2c323d] p-3.5 space-y-3">
                   <div className="flex items-center justify-between gap-2">
@@ -511,6 +625,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {updateCheckState.message}
                     </div>
                   )}
+                </div>
+
+                {/* Songbook Cloud Sync & ET OAuth */}
+                <div className="rounded-lg bg-[#20242c] border border-[#2c323d] p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                        <ShieldCheck
+                          className={`w-3.5 h-3.5 ${
+                            isOAuthAuthorized ? 'text-emerald-400' : 'text-blue-400'
+                          }`}
+                        />
+                        <span>Songbook Cross-Sync (ET OAuth)</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {isOAuthAuthorized && oauthUser
+                          ? `Signed in as ${oauthUser.email} · ${
+                              preferences.songbookAutoMerge
+                                ? 'Auto Merge active with pnw-lyrics'
+                                : 'Manual merge mode'
+                            }`
+                          : 'Sign in with an authorized ET OAuth account to cross-sync songs with Songbook.'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isOAuthAuthorized && oauthUser ? (
+                        <button
+                          type="button"
+                          onClick={onLogoutOAuth}
+                          className="px-2.5 py-1.5 rounded bg-[#171b22] hover:bg-red-950/50 border border-[#2c323d] text-[11px] font-medium text-slate-300 hover:text-red-300 flex items-center gap-1.5"
+                        >
+                          <LogOut className="w-3 h-3" />
+                          <span>Sign Out</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={onOpenOAuthModal}
+                          className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-[11px] font-semibold text-white"
+                        >
+                          Sign in with ET OAuth
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={onSongbookSyncButtonClick}
+                        className={`px-3 py-1.5 rounded border text-[11px] font-semibold flex items-center gap-1.5 ${
+                          preferences.songbookAutoMerge && isOAuthAuthorized
+                            ? 'bg-emerald-600/20 border-emerald-500/60 text-emerald-200'
+                            : 'bg-[#252a33] hover:bg-[#2f3642] border-[#2c323d] text-slate-200'
+                        }`}
+                      >
+                        {preferences.songbookAutoMerge && isOAuthAuthorized ? (
+                          <Cloud className="w-3 h-3 text-emerald-300" />
+                        ) : (
+                          <GitMerge className="w-3 h-3 text-blue-300" />
+                        )}
+                        <span>
+                          {preferences.songbookAutoMerge && isOAuthAuthorized
+                            ? 'Auto Merge'
+                            : 'Merge with Songbook'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

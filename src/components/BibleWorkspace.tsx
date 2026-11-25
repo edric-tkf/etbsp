@@ -387,7 +387,8 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 key={v.number}
                 type="button"
                 onClick={() => onProjectVerse(bookName, chapNum, v.number)}
-                className={`w-full text-left px-3.5 py-3.5 min-h-[50px] flex items-start gap-3 transition-colors cursor-pointer ${
+                style={{ minHeight: 'var(--bsp-row-height-px, 54px)' }}
+                className={`w-full text-left px-3.5 py-3 flex items-start gap-3 transition-colors cursor-pointer ${
                   isLiveVerse
                     ? 'bg-emerald-950/45 text-white'
                     : isSelected
@@ -396,7 +397,7 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                 }`}
               >
                 <span
-                  className={`min-w-[30px] px-1.5 py-1 rounded text-center text-[11px] font-bold font-mono-tabular shrink-0 mt-0.5 ${
+                  className={`min-w-[30px] px-1.5 py-1 rounded text-center text-xs font-bold font-mono-tabular shrink-0 mt-0.5 ${
                     isLiveVerse
                       ? 'bg-emerald-600 text-white'
                       : isSelected
@@ -407,12 +408,15 @@ export const BibleWorkspace: React.FC<BibleWorkspaceProps> = ({
                   {v.number}
                 </span>
 
-                <span className="flex-1 min-w-0 text-[13.5px] leading-relaxed text-slate-100">
+                <span
+                  style={{ fontSize: 'var(--bsp-ui-font-px, 14.5px)' }}
+                  className="flex-1 min-w-0 leading-relaxed text-slate-100"
+                >
                   {v.text}
                 </span>
 
                 {isLiveVerse && (
-                  <span className="text-[11px] font-bold text-emerald-400 tracking-wide shrink-0 mt-0.5">
+                  <span className="text-xs font-bold text-emerald-400 tracking-wide shrink-0 mt-0.5">
                     LIVE
                   </span>
                 )}

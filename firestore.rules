@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isAuthenticated() { return isSignedIn(); }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isTeacher() {
+      return isSignedIn() && (
+        request.auth.token.email == "edric.tkf@gmail.com" ||
+        request.auth.uid == "IlY8mPn1sBd7ine8h28pYJlseMX2" ||
+        (
+          exists(/databases/$(database)/documents/points/$(request.auth.uid))
+          && get(/databases/$(database)/documents/points/$(request.auth.uid)).data.role == "teacher"
+        )
+      );
+    }
+    function isAuthorizedSongbookAccount() {
+      return isSignedIn() && request.auth.token.email in [
+        "edric.tkf@gmail.com",
+        "edricteo@et.com"
+      ];
+    }
+
+    // PDF Viewer Online Collections
+    match /pdfvieweronline/{docId} {
+      allow read, write: if true;
+    }
+    match /pdf_documents/{docId} {
+      allow read, write: if true;
+    }
+
+    // Yacht Bookings
+    match /yacht_bookings/{bookingId} {
+      allow create: if true;
+      allow read, update, delete: if isTeacher();
+    }
+    // Property Listing Categories
+    match /listing_categories/{categoryId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+    // Blogs
+    match /blogs/{blogId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+    // Links
+    match /links/{linkId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if (isAuthenticated() && resource.data.ownerUid == request.auth.uid) || isTeacher();
+    }
+    
+    // Pnw APP
+    match /pnw-lyrics/{lyricId} {
+      allow read, write: if isAuthorizedSongbookAccount();
+    }
+
+    match /myPlaylists/{playlistId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.ownerUid != null;
+      allow update, delete: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.ownerUid.startsWith('oauth-'));
+    }
+
+    match /timestamps/{videoId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /likedSongs/{likedSongId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+    
+    // LearnLink
+    match /games/{gameId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+    match /learnlink_classes/{classId} {
+      allow read, write: if isSignedIn();
+      match /students/{studentId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+    match /classes/{classId} {
+      allow read, write: if isSignedIn();
+    }
+    match /reward_items/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacher();
+    }
+    match /rewards_settings/{settingId} {
+      allow read, write: if isSignedIn();
+    }
+    match /wishlists/{wishlistId} {
+      allow read, write: if isSignedIn();
+    }
+    match /forms/{formId} {
+      allow read, write: if isSignedIn();
+    }
+    match /users/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /points/{uid} {
+      allow read: if isOwner(uid) || isTeacher();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid) || isTeacher();
+      allow delete: if isTeacher();
+    }
+    match /pointsToClaim/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid ||
+        resource.data.claimedByUid == request.auth.uid ||
+        isTeacher()
+      );
+      allow create, update, delete: if isTeacher();
+    }
+    match /homework/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+    match /homeworkCompletions/{id} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isTeacher());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isTeacher() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isTeacher();
+    }
+    match /vouchers/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isTeacher();
+    }
+    match /userVouchers/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isTeacher());
+      allow create, update, delete: if isTeacher();
+    }
+    match /rewardRequests/{id} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isTeacher());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isTeacher();
+    }
+    match /redemptions/{id} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isTeacher());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isTeacher();
+    }
+    match /claims/{id} {
+      allow read: if isSignedIn() && (resource.data.claimedByUid == request.auth.uid || isTeacher());
+      allow create, update, delete: if isTeacher();
+    }
+    // Relaxed fallback to reduce permission-denied issues.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

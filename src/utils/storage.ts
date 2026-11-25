@@ -207,6 +207,15 @@ export async function loadWorkspaceData(): Promise<PersistedWorkspaceData> {
   const preferences: UserPreferences = {
     ...DEFAULT_USER_PREFERENCES,
     ...(rawPrefs || {}),
+    uiFontSizePx:
+      typeof rawPrefs?.uiFontSizePx === 'number' && Number.isFinite(rawPrefs.uiFontSizePx)
+        ? Math.max(11, Math.min(22, rawPrefs.uiFontSizePx))
+        : DEFAULT_USER_PREFERENCES.uiFontSizePx,
+    uiRowHeightPx:
+      typeof rawPrefs?.uiRowHeightPx === 'number' && Number.isFinite(rawPrefs.uiRowHeightPx)
+        ? Math.max(32, Math.min(110, rawPrefs.uiRowHeightPx))
+        : DEFAULT_USER_PREFERENCES.uiRowHeightPx,
+    songbookAutoMerge: Boolean(rawPrefs?.songbookAutoMerge),
     shortcuts: {
       ...DEFAULT_USER_PREFERENCES.shortcuts,
       ...(rawPrefs?.shortcuts || {}),

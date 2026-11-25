@@ -513,5 +513,123 @@ describe('Fixed Pixel Font Sizes & Lower Layout Minimums', () => {
     expect(explicit.textPaddingRightPx).toBe(64);
     expect(DEFAULT_DISPLAY_SETTINGS.textPaddingLeftPx).toBe(0);
     expect(DEFAULT_DISPLAY_SETTINGS.textPaddingRightPx).toBe(0);
+    expect(DEFAULT_USER_PREFERENCES.uiFontSizePx).toBe(14.5);
+    expect(DEFAULT_USER_PREFERENCES.uiRowHeightPx).toBe(54);
+    expect(DEFAULT_USER_PREFERENCES.songbookAutoMerge).toBe(false);
+  });
+});
+
+import { isAllowedSongbookEmail } from '../firebase/firebaseClients';
+import { parseSongbookDocToSong, reconcileSongbookMerge } from '../utils/songbookSync';
+
+describe('ET OAuth Allowlist & Songbook Two-Way Merge', () => {
+  it('allows only edric.tkf@gmail.com and edricteo@et.com case-insensitively', () => {
+    expect(isAllowedSongbookEmail('edric.tkf@gmail.com')).toBe(true);
+    expect(isAllowedSongbookEmail('  EDRICTEO@ET.COM ')).toBe(true);
+    expect(isAllowedSongbookEmail('someoneelse@gmail.com')).toBe(false);
+    expect(isAllowedSongbookEmail('')).toBe(false);
+    expect(isAllowedSongbookEmail(null)).toBe(false);
+  });
+
+  it('merges identical songs immediately, adds missing songs to both sides, and flags differing lyrics', () => {
+    const identicalLocal = parseSongTXT('[Verse 1]\nPraise the Lord\nAmen', {
+      id: 'local-1',
+      title: 'Praise',
+      artist: '',
+    }).song;
+
+    const conflictLocal = parseSongTXT('[Verse 1]\nLocal version line 1\nLocal line 2', {
+      id: 'local-2',
+      title: 'Gratitude',
+      artist: 'Brandon Lake',
+    }).song;
+
+    const localOnly = parseSongTXT('[Chorus]\nOnly in BSP', {
+      id: 'local-3',
+      title: 'Local Exclusive',
+      artist: 'CityAlight',
+    }).song;
+
+    const remoteDocs = [
+      {
+        id: 'fb-praise',
+        title: 'Praise',
+        artists: 'Elevation Worship, Brandon Lake',
+        lyrics: '[Verse 1]\nPraise the Lord\nAmen',
+      },
+      {
+        id: 'fb-gratitude',
+        title: 'Gratitude',
+        artists: 'Brandon Lake',
+        lyrics: '[Verse 1]\nSongbook different lyric\nHallelujah',
+      },
+      {
+        id: 'fb-only',
+        title: 'Way Maker',
+        artists: 'Sinach',
+        lyrics: '[Chorus]\nYou are here\nMoving in our midst',
+      },
+    ];
+
+    const res = reconcileSongbookMerge([identicalLocal, conflictLocal, localOnly], remoteDocs, {
+      mode: 'manual-merge',
+    });
+
+    // Identical song merged with remote artists & docId
+    const praise = res.mergedLocalSongs.find((s) => s.title === 'Praise');
+    expect(praise?.songbookDocId).toBe('fb-praise');
+    expect(praise?.artist).toBe('Elevation Worship, Brandon Lake');
+
+    // Remote-only song added locally
+    const wayMaker = res.mergedLocalSongs.find((s) => s.title === 'Way Maker');
+    expect(wayMaker?.songbookDocId).toBe('fb-only');
+    expect(wayMaker?.artist).toBe('Sinach');
+
+    // Local-only song queued for Firestore creation
+    expect(res.toCreateInRemote).toHaveLength(1);
+    expect(res.toCreateInRemote[0].payload.title).toBe('Local Exclusive');
+    expect(res.toCreateInRemote[0].payload.artists).toBe('CityAlight');
+
+    // Same-title song with different lyrics triggers user conflict prompt
+    expect(res.conflicts).toHaveLength(1);
+    expect(res.conflicts[0].title).toBe('Gratitude');
+  });
+
+  it('auto-applies remote edits when local was untouched and removes remotely deleted linked songs in auto-sync mode', () => {
+    const syncedSong = parseSongbookDocToSong({
+      id: 'fb-1',
+      title: 'Holy Forever',
+      artists: 'Chris Tomlin',
+      lyrics: '[Verse 1]\nA thousand generations',
+    });
+
+    const deletedRemotely = parseSongbookDocToSong({
+      id: 'fb-deleted',
+      title: 'Old Song',
+      artists: 'Someone',
+      lyrics: '[Verse 1]\nOld lyrics',
+    });
+
+    const res = reconcileSongbookMerge(
+      [syncedSong, deletedRemotely],
+      [
+        {
+          id: 'fb-1',
+          title: 'Holy Forever',
+          artists: 'Chris Tomlin, Bethel Music',
+          lyrics: '[Verse 1]\nA thousand generations\nFalling down in worship',
+        },
+      ],
+      { mode: 'auto-sync' }
+    );
+
+    expect(res.conflicts).toHaveLength(0);
+    expect(res.removedLocalIds).toEqual([deletedRemotely.id]);
+    expect(res.mergedLocalSongs).toHaveLength(1);
+    expect(res.mergedLocalSongs[0].artist).toBe('Chris Tomlin, Bethel Music');
+    expect(res.mergedLocalSongs[0].sections[0].lyrics).toEqual([
+      'A thousand generations',
+      'Falling down in worship',
+    ]);
   });
 });
